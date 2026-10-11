@@ -184,4 +184,35 @@ class TargetLockTest {
         val l = TargetLock()
         assertNull(l.update(listOf(cand(1, "cup", 0.5f)), 0)); assertEquals(TrackStatus.NONE, l.status)
     }
+    @Test fun staleBoxStopsDrivingGuidanceEvenWithoutNewDetections() {
+        val l = locked()
+        assertNotNull(l.boxAt(1500))
+        assertNull(l.boxAt(1501))          // detector stalled: no update() since t=0, box must not be used
+        assertNotNull(l.box)               // ...although nothing has formally declared it lost yet
+        l.update(listOf(cand(1, "cup", 0.3f)), 1400) // a late but fresh-enough result revives it
+        assertNotNull(l.boxAt(2000))
+    }
+}
+
+class DetectorGateTest {
+    @Test fun oneInFlightAndRateLimited() {
+        val g = DetectorGate(intervalMs = 300, staleMs = 600)
+        assertTrue(g.tryStart(0))
+        assertFalse(g.tryStart(400))       // previous run still in flight: frame skipped, not queued
+        assertTrue(g.finish(0, 150))
+        assertFalse(g.tryStart(200))       // finished, but within the interval
+        assertTrue(g.tryStart(400))
+    }
+
+    @Test fun staleResultsAreRejected() {
+        val g = DetectorGate(intervalMs = 0, staleMs = 600)
+        assertTrue(g.tryStart(0)); assertFalse(g.finish(0, 601)); assertEquals(1, g.staleDropped)
+        assertTrue(g.tryStart(1000)); assertTrue(g.finish(1000, 1600)); assertEquals(1, g.staleDropped)
+    }
+
+    @Test fun failedRunStillFreesTheSlot() {
+        val g = DetectorGate(intervalMs = 0, staleMs = 600)
+        assertTrue(g.tryStart(0)); g.finish(0, 5000)   // e.g. detector threw; finish() is called in finally
+        assertTrue(g.tryStart(5000))
+    }
 }

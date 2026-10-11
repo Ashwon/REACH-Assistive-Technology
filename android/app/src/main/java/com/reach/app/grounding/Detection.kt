@@ -184,6 +184,34 @@ class TargetLock(private val holdMs: Long = 1500, private val reacquireDist: Flo
         }
         return null
     }
+
+    /** The box guidance may use at nowMs: null once the last sighting is older than the hold, even if
+     *  no detection result has arrived since (a stalled detector must not keep steering the hand). */
+    @Synchronized fun boxAt(nowMs: Long): Box? = box?.takeIf { nowMs - seenMs <= holdMs }
+}
+
+/**
+ * Runs the detector off the hand-tracking thread: at most one frame in flight (bounded queue of one,
+ * newer frames are simply skipped, so results arrive in frame order), at most one start per intervalMs,
+ * and results whose frame is older than staleMs by the time they finish are rejected.
+ */
+class DetectorGate(private val intervalMs: Long, private val staleMs: Long) {
+    private var inFlight = false
+    private var lastStart = Long.MIN_VALUE / 2
+    var staleDropped = 0; private set
+
+    @Synchronized fun tryStart(nowMs: Long): Boolean {
+        if (inFlight || nowMs - lastStart < intervalMs) return false
+        inFlight = true; lastStart = nowMs
+        return true
+    }
+
+    /** Must be called once per successful tryStart (also on failure). True = apply this result. */
+    @Synchronized fun finish(frameMs: Long, nowMs: Long): Boolean {
+        inFlight = false
+        if (nowMs - frameMs > staleMs) { staleDropped++; return false }
+        return true
+    }
 }
 
 /**

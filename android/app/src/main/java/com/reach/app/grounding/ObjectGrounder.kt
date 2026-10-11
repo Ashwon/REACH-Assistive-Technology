@@ -50,7 +50,8 @@ class LocalDetectorGrounder(
         ObjectDetector.ObjectDetectorOptions.builder()
             .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientdet_lite0.tflite").build())
             .setRunningMode(RunningMode.VIDEO)
-            .setScoreThreshold(minScore)
+            // Ask for more than we keep, so supported objects scoring just under minScore show up in the log.
+            .setScoreThreshold(minOf(minScore, LOG_FLOOR))
             // Unsupported classes (tv, dining table, ...) still occupy result slots, so leave headroom.
             .setMaxResults(20)
             .build()
@@ -60,6 +61,7 @@ class LocalDetectorGrounder(
         val result = detector.detectForVideo(BitmapImageBuilder(frame).build(), timestampMs)
         val dets = ArrayList<Det>()
         val rejected = ArrayList<String>()
+        val near = ArrayList<String>()
         for (det in result.detections()) {
             val cat = det.categories().firstOrNull() ?: continue
             val name = cat.categoryName().lowercase()
@@ -69,7 +71,8 @@ class LocalDetectorGrounder(
             )
             when {
                 name !in allowed -> rejected.add("$name:${"%.2f".format(cat.score())}")
-                cat.score() < minScore || !box.isValid() -> rejected.add("$name:invalid")
+                cat.score() < minScore -> near.add("$name:${"%.2f".format(cat.score())}")
+                !box.isValid() -> rejected.add("$name:invalid")
                 else -> dets.add(Det(name, cat.score(), box))
             }
         }
@@ -78,7 +81,7 @@ class LocalDetectorGrounder(
             lastRawLog = timestampMs
             Log.i("REACH", "kept=" + dets.mapIndexed { i, d ->
                 "#${ids[i]} ${d.label}:${"%.2f".format(d.score)}"
-            } + " rejected=$rejected")
+            } + " near=$near rejected=$rejected")
         }
         return dets.mapIndexed { i, d ->
             val crop = safeCrop(frame, d.box)
@@ -97,6 +100,8 @@ class LocalDetectorGrounder(
     } catch (e: Exception) { null }
 
     override fun close() = detector.close()
+
+    private companion object { const val LOG_FLOOR = 0.2f }
 }
 
 /**

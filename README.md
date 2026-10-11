@@ -8,8 +8,8 @@ hand tracking → deterministic spatial guidance → TTS.
 
 ```
 Voice → Claude (backend proxy, once) → target locked
-Camera frame → EfficientDet candidates + HSV beverage color
-            → MediaPipe index fingertip
+Camera frame → EfficientDet candidates + HSV beverage color (own thread, ~3 Hz, stale results dropped)
+            → MediaPipe fingertips (all five exposed; the index tip drives guidance)
             → SpatialEngine (hysteresis + throttle)
             → TTS: "Move right." / "Reach forward slowly." / "Target reached."
 ```
@@ -45,8 +45,8 @@ Camera frame → EfficientDet candidates + HSV beverage color
 | Milestone | Test on A15 | Success | Fallback |
 |---|---|---|---|
 | **V0 camera** | Launch app | Live rear preview, no stutter after 2 min | Lower analysis res to 480×360 in `CameraXSource` |
-| **V1 hand** | Hold hand ~40 cm in front | Cyan dot rides your index fingertip | Increase lighting; drop `MinHandDetectionConfidence` to 0.3 |
-| **V2 grounding** | A bottle/cup/phone/chair on a table, ~50–80 cm | Yellow boxes labeled `#id label score` (drink containers add a color guess) | Check `adb logcat | grep "REACH   : kept"` for what the detector reports; tune `SupportedClasses` / `ColorClassifier` |
+| **V1 hand** | Hold hand ~40 cm in front | Big cyan dot rides your index fingertip, small dots on the other four tips (`adb logcat | grep "REACH   : tips"`) | Increase lighting; drop `MinHandDetectionConfidence` to 0.3 |
+| **V2 grounding** | A bottle/cup/phone/chair on a table, ~50–80 cm | Yellow boxes labeled `#id label score` (drink containers add a color guess) | Check `adb logcat | grep "REACH   : kept"` for what the detector reports (`near=` lists supported objects scoring 0.20–0.35); tune `SupportedClasses` / `ColorClassifier` |
 | **V3 depth** | Press DEPTH TEST button | "Depth API supported: true" + plausible mm at center | If false/fails: ship Level 1 (2D). Demo unaffected. |
 | **V4 spatial** | Lock target (below), move hand around | Cues change L/R/U/D without chatter | Widen `ENTER_X/EXIT_X` gap |
 | **V5 Claude** | "Find my Coke" with backend up | TTS: "Found the coke, NN percent sure." Two red cans → clarification question | Kill backend → app auto-switches to offline keyword mode |
