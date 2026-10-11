@@ -31,17 +31,19 @@ class Speaker(context: Context) {
         tts.speak(text, if (interrupt) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "reach")
     }
 
-    fun sayGuidance(g: Guidance) {
+    fun sayGuidance(g: Guidance, target: String) {
         val text = when (g) {
             Guidance.LEFT -> "Move left."
             Guidance.RIGHT -> "Move right."
             Guidance.UP -> "Move up."
             Guidance.DOWN -> "Move down."
-            Guidance.FORWARD -> "Move forward."
-            Guidance.ALIGNED -> "You're aligned."
-            Guidance.REACH -> "Reach forward slowly."
-            Guidance.REACHED -> "Target reached."
-            Guidance.UNCERTAIN -> "I lost tracking. Hold still."
+            Guidance.LINED_UP_2D -> "Lined up. Reach forward slowly."
+            Guidance.CLOSER -> "Move closer."
+            Guidance.STOP -> "Stop."
+            Guidance.REACHED -> "${target.replaceFirstChar { it.uppercase() }} reached."
+            Guidance.HAND_COVERS_TARGET -> "Your hand is covering the $target. Reach forward slowly."
+            Guidance.HAND_LOST -> "I can't see your hand."
+            Guidance.TARGET_LOST -> "I can't see the $target. Hold still."
             Guidance.NONE -> return
         }
         say(text)

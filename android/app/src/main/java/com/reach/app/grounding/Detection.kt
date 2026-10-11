@@ -10,6 +10,7 @@ data class Box(val left: Float, val top: Float, val right: Float, val bottom: Fl
     fun centerX() = (left + right) / 2f
     fun centerY() = (top + bottom) / 2f
     fun distTo(o: Box) = kotlin.math.hypot(centerX() - o.centerX(), centerY() - o.centerY())
+    fun contains(x: Float, y: Float) = x in left..right && y in top..bottom
 
     /** Finite, inside the frame, and not a sliver. */
     fun isValid() = listOf(left, top, right, bottom).all { it.isFinite() && it in 0f..1f } &&
@@ -155,6 +156,8 @@ class TargetLock(private val holdMs: Long = 1500, private val reacquireDist: Flo
     /** Last known box; null once the target has been lost for longer than the hold. */
     var box: Box? = null; private set
     var status = TrackStatus.NONE; private set
+    /** Counts re-acquisitions so the app can announce them; a target never changes silently. */
+    @Volatile var reacquisitions = 0; private set
     private var lastBox: Box? = null
     private var seenMs = 0L
 
@@ -180,7 +183,7 @@ class TargetLock(private val holdMs: Long = 1500, private val reacquireDist: Flo
         val same = cands.filter { it.label == label }
         val last = lastBox
         if (same.size == 1 && last != null && same[0].box.distTo(last) < reacquireDist) {
-            lock(same[0], nowMs); return same[0]
+            lock(same[0], nowMs); reacquisitions++; return same[0]
         }
         return null
     }

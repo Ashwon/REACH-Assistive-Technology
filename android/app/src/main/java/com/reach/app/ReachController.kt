@@ -1,7 +1,6 @@
 package com.reach.app
 
 import android.graphics.Bitmap
-import android.graphics.RectF
 import android.os.SystemClock
 import android.util.Log
 import com.reach.app.claude.ClaudeClient
@@ -37,6 +36,9 @@ import java.util.concurrent.atomic.AtomicLong
 private const val GROUND_INTERVAL_MS = 300L
 /** A detection whose frame is older than this when it finishes is dropped, never applied. */
 private const val STALE_MS = 600L
+/** Let the spoken "guiding" / "found it again" announcements finish before direction cues resume. */
+private const val INTRO_QUIET_MS = 3000L
+private const val RELOCK_QUIET_MS = 1500L
 
 enum class Mode { IDLE, INTERPRETING, TARGET_LOCKED, REACHING, DONE }
 
@@ -64,6 +66,10 @@ class ReachController(
     private val detectExec = Executors.newSingleThreadExecutor()
     private val gate = DetectorGate(GROUND_INTERVAL_MS, STALE_MS)
     @Volatile private var detFrameMs = -1L // frame time of the detections currently applied
+    /** Set by "guide me"; the camera thread then resets the guidance state it owns. */
+    private val startGuide = AtomicBoolean(false)
+    @Volatile private var lastCue = Guidance.NONE
+    private var announcedRelocks = 0 // camera thread
 
     // Debug log accumulators: camera thread, except the det* ones written by the detector thread.
     private var logAt = 0L
@@ -86,18 +92,24 @@ class ReachController(
             handNs += System.nanoTime() - t1
             val handPt = hand.index?.let { Pair(it.x, it.y) }
 
+            if (startGuide.getAndSet(false)) { spatial.reset(); throttle.reset(); throttle.quiet(tsMs + INTRO_QUIET_MS) }
+            // The lock only re-acquires an unambiguous same-class object near the old spot; still, say so.
+            val relocks = lock.reacquisitions
+            if (relocks != announcedRelocks) {
+                announcedRelocks = relocks
+                speaker.say("Found the $targetName again.")
+                throttle.quiet(tsMs + RELOCK_QUIET_MS)
+            }
+
             if (mode == Mode.REACHING) {
-                val cue = spatial.update(
-                    SpatialInput(
-                        targetBox = lock.boxAt(tsMs)?.let { RectF(it.left, it.top, it.right, it.bottom) },
-                        handX = handPt?.first, handY = handPt?.second,
-                        handSize = if (hand.present) hand.handSize else null,
-                        timestampMs = tsMs
-                    )
-                )
+                // depth = null: ARCore depth cannot be registered to these CameraX frames (README "Guidance geometry"),
+                // so guidance is 2D only and the engine will never say "reached".
+                val cue = spatial.update(SpatialInput(lock.boxAt(tsMs), handPt?.first, handPt?.second, depth = null, timestampMs = tsMs))
+                lastCue = cue
                 throttle.filter(cue, tsMs)?.let { spoken ->
-                    Log.i("REACH", "cue=$spoken target=${lock.box?.let { "%.2f,%.2f".format(it.centerX(), it.centerY()) }} hand=${handPt?.let { "%.2f,%.2f".format(it.first, it.second) }}")
-                    speaker.sayGuidance(spoken)
+                    Log.i("REACH", "cue=$spoken target=${lock.box?.let { "%.2f,%.2f".format(it.centerX(), it.centerY()) }} " +
+                        "tip=${handPt?.let { "%.2f,%.2f".format(it.first, it.second) }} err=%+.3f,%+.3f".format(spatial.ex, spatial.ey))
+                    speaker.sayGuidance(spoken, targetName)
                     if (spoken == Guidance.REACHED) mode = Mode.DONE
                 }
             }
@@ -108,6 +120,7 @@ class ReachController(
                 Log.i("REACH", "fps=$logFrames handMs=${handNs / logFrames / 1_000_000} det/s=$runs " +
                     "groundMs=${if (runs > 0) ns / runs / 1_000_000 else 0} detAgeMs=${if (detFrameMs < 0) -1 else tsMs - detFrameMs} " +
                     "stale=${gate.staleDropped} mode=$mode target=$targetName#${lock.id} ${lock.status} " +
+                    (if (mode == Mode.REACHING) "guide=2D cue=$lastCue err=%+.3f,%+.3f ".format(spatial.ex, spatial.ey) else "") +
                     "hand=${if (hand.present) "score=%.2f size=%.2f".format(hand.score, hand.handSize) else null} " +
                     "cands=" + latestCandidates.joinToString { "#${it.id} ${it.label}/${it.beverage}/${"%.2f".format(it.score)}" })
                 if (hand.present) Log.i("REACH", "tips " + hand.tips.joinToString(" ") {
@@ -117,7 +130,7 @@ class ReachController(
                 logAt = tsMs; logFrames = 0; handNs = 0
             }
             onUi(latestCandidates, if (lock.active) lock.id else -1, hand,
-                "mode=$mode target=${targetName.ifEmpty { "-" }} ${lock.status}")
+                "mode=$mode target=${targetName.ifEmpty { "-" }} ${lock.status}" + if (mode == Mode.REACHING) " 2D cue=$lastCue" else "")
         } finally {
             busy.set(false)
         }
@@ -149,16 +162,17 @@ class ReachController(
                 ?.let { pickByPosition(it.options, lower) }?.let { spec to it }
         }
         when {
-            mode == Mode.TARGET_LOCKED && "guide" in lower -> {
-                spatial.reset(); throttle.reset()
+            (mode == Mode.TARGET_LOCKED || mode == Mode.REACHING || mode == Mode.DONE) && "guide" in lower -> { // also restarts guidance
+                startGuide.set(true)
                 mode = Mode.REACHING
-                speaker.say("Guiding. Move your hand into view.")
+                speaker.say("Guiding by direction only, not distance. Hold your hand out.")
             }
             answered != null -> {
                 pendingSpec = null
                 lockOn(answered.second, answered.first.name, answered.second.score.toDouble(), offline = true)
             }
             else -> {
+                lock.clear() // a new request never leaves guidance pointed at the previous object
                 mode = Mode.INTERPRETING
                 val snapshot = selectable
                 scope.launch {
@@ -193,8 +207,7 @@ class ReachController(
     }
 
     fun reset() {
-        mode = Mode.IDLE; targetName = ""; pendingSpec = null; lock.clear()
-        spatial.reset(); throttle.reset()
+        mode = Mode.IDLE; targetName = ""; pendingSpec = null; lock.clear() // guidance state resets on the next "guide me"
         speaker.say("Reset.")
     }
 }

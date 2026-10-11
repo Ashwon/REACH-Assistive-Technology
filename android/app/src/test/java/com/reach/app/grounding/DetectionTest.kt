@@ -178,6 +178,7 @@ class TargetLockTest {
         assertNull(l.update(listOf(cand(5, "cup", 0.95f)), 2200))          // far from last position
         assertEquals(5, l.update(listOf(cand(5, "cup", 0.33f)), 2300)!!.id)
         assertEquals(TrackStatus.TRACKING, l.status); assertEquals(5, l.id)
+        assertEquals(1, l.reacquisitions) // counted, so the app announces it
     }
 
     @Test fun inactiveLockDoesNothing() {
