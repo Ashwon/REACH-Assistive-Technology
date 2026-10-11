@@ -9,13 +9,15 @@ Run on your laptop, phone connects over the same Wi-Fi.
 Then set BACKEND_URL in android/app/build.gradle.kts to http://<laptop-LAN-IP>:8000
 """
 
-import base64
 import json
+import logging
 import os
 
 import anthropic
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+log = logging.getLogger("reach")
 
 app = FastAPI()
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
@@ -59,12 +61,12 @@ class CandidateIn(BaseModel):
     cx: float
     cy: float
     score: float
-    thumb_b64: str | None = None
+    thumb_b64: str | None = Field(None, max_length=60_000)  # ~96x128 JPEG is ~10 KB
 
 
 class InterpretIn(BaseModel):
-    utterance: str
-    candidates: list[CandidateIn]
+    utterance: str = Field(max_length=500)
+    candidates: list[CandidateIn] = Field(max_length=8)
 
 
 @app.get("/health")
@@ -119,13 +121,7 @@ def interpret(body: InterpretIn):
             "needs_clarification": bool(out.get("needs_clarification", False)),
             "question": out.get("question", ""),
         }
-    except Exception as e:  # Claude/network failure -> app falls back locally too
-        return {
-            "intent": "UNKNOWN",
-            "target": "",
-            "candidate_id": -1,
-            "confidence": 0.0,
-            "needs_clarification": True,
-            "question": "I could not reach the reasoning service.",
-            "error": str(e),
-        }
+    except Exception:
+        # Non-2xx on purpose: the app only falls back to offline keyword mode on HTTP errors.
+        log.exception("interpret failed")
+        raise HTTPException(status_code=502, detail="reasoning service unavailable")

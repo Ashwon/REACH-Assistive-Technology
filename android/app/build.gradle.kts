@@ -14,7 +14,9 @@ android {
         versionCode = 1
         versionName = "0.1"
         // Backend URL is injected here, NOT an API key. Key lives only on the backend.
-        buildConfigField("String", "BACKEND_URL", "\"http://10.0.2.2:8000\"") // change to your laptop LAN IP
+        // Override per build: ./gradlew assembleDebug -PbackendUrl=http://<mac-ip>:8000
+        val backendUrl = (project.findProperty("backendUrl") as String?) ?: "http://192.168.1.5:8000"
+        buildConfigField("String", "BACKEND_URL", "\"$backendUrl\"")
     }
     buildFeatures { buildConfig = true; viewBinding = true }
     compileOptions {

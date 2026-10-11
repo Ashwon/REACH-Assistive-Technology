@@ -64,5 +64,8 @@ class CameraXSource(
         return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
     }
 
-    fun stop() { executor.shutdown() }
+    fun stop() {
+        executor.shutdown()
+        executor.awaitTermination(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
 }

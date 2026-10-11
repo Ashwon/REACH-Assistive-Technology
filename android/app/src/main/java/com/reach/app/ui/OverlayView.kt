@@ -43,6 +43,6 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
             canvas.drawText("${c.beverage} ${(c.score * 100).toInt()}%", r.left, r.top - 10f, textPaint)
         }
         hand?.let { (x, y) -> canvas.drawCircle(x * w, y * h, 22f, handPaint) }
-        canvas.drawText(statusText, 24f, h - 48f, textPaint)
+        canvas.drawText(statusText, 24f, h - 400f, textPaint) // above the button row
     }
 }

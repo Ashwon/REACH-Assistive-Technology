@@ -2,6 +2,7 @@ package com.reach.app.claude
 
 import android.graphics.Bitmap
 import android.util.Base64
+import android.util.Log
 import com.reach.app.BuildConfig
 import com.reach.app.grounding.Candidate
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,7 @@ class ClaudeClient {
                     )
                 }
             } catch (e: Exception) {
+                Log.w("REACH", "backend unavailable (${e.javaClass.simpleName}: ${e.message}); offline fallback")
                 interpretLocal(utterance, candidates)
             }
         }

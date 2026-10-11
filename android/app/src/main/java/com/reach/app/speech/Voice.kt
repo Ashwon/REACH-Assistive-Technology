@@ -3,6 +3,7 @@ package com.reach.app.speech
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -13,18 +14,20 @@ import java.util.Locale
 /** V6 — TTS output. Guidance phrases are short by design. */
 class Speaker(context: Context) {
     private var ready = false
+    private var pending: String? = null
     private lateinit var tts: TextToSpeech
     init {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts.language = Locale.US
                 ready = true
+                pending?.let { say(it) }
             }
         }
     }
 
     fun say(text: String, interrupt: Boolean = true) {
-        if (!ready) return
+        if (!ready) { pending = text; return }
         tts.speak(text, if (interrupt) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "reach")
     }
 
@@ -53,14 +56,15 @@ class VoiceInput(private val context: Context) {
 
     fun listen(onResult: (String?) -> Unit) {
         recognizer?.destroy()
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) { onResult(null); return }
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) { Log.w("REACH", "speech recognition unavailable"); onResult(null); return }
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle) {
                     val list = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    Log.i("REACH", "heard: $list")
                     onResult(list?.firstOrNull())
                 }
-                override fun onError(error: Int) = onResult(null)
+                override fun onError(error: Int) { Log.w("REACH", "speech error=$error"); onResult(null) }
                 override fun onReadyForSpeech(p: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(v: Float) {}

@@ -28,9 +28,16 @@ Camera frame → EfficientDet candidates + HSV beverage color
    uvicorn server:app --host 0.0.0.0 --port 8000
    ```
    Verify: open `http://<laptop-ip>:8000/health` from the phone browser.
-3. **App**: open `android/` in Android Studio. Edit `BACKEND_URL` in
-   `app/build.gradle.kts` to `http://<laptop-ip>:8000`. Build → Run on the A15.
-   Grant camera + mic permissions.
+3. **App** (Wi-Fi: phone and Mac on the same network):
+   ```bash
+   cd android
+   ./gradlew assembleDebug -PbackendUrl=http://<mac-lan-ip>:8000   # default http://192.168.1.5:8000
+   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   ```
+   No Wi-Fi on the phone? Over USB use `adb reverse tcp:8000 tcp:8000` and build with
+   `-PbackendUrl=http://127.0.0.1:8000`. Backend tests: `cd backend && python3 -m pytest -q`.
+   Debug builds log pipeline state under the `REACH` tag (`adb logcat | grep "REACH   :"`) and accept
+   a typed utterance: `adb shell am start -f 0x20000000 -n com.reach.app/.MainActivity --es utterance "find my coke"`.
 
 ## Milestone test plan (run in this order)
 

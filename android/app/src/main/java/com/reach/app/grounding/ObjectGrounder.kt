@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.RectF
+import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -39,6 +40,7 @@ interface ObjectGrounder {
  */
 class LocalDetectorGrounder(context: Context) : ObjectGrounder {
 
+    private var lastRawLog = 0L
     private val acceptedClasses = setOf("bottle", "cup", "vase", "wine glass", "can")
 
     private val detector: ObjectDetector = ObjectDetector.createFromOptions(
@@ -53,6 +55,12 @@ class LocalDetectorGrounder(context: Context) : ObjectGrounder {
 
     override fun ground(frame: Bitmap, timestampMs: Long): List<Candidate> {
         val result = detector.detectForVideo(BitmapImageBuilder(frame).build(), timestampMs)
+        if (timestampMs - lastRawLog >= 1000) {
+            lastRawLog = timestampMs
+            Log.i("REACH", "raw detections: " + result.detections().joinToString {
+                it.categories().firstOrNull()?.let { c -> "${c.categoryName()}:${"%.2f".format(c.score())}" } ?: "?"
+            })
+        }
         val out = ArrayList<Candidate>()
         var id = 0
         for (det in result.detections()) {

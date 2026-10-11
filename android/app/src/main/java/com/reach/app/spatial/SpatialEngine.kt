@@ -39,13 +39,14 @@ class SpatialEngine {
     private var activeX = 0        // -1 LEFT needed, +1 RIGHT needed, 0 ok
     private var activeY = 0
     private var alignedSince = -1L
-    private var lastSeenTarget = 0L
-    private var lastSeenHand = 0L
+    private var lastSeenTarget = -1L   // -1 = not seen since reset()
+    private var lastSeenHand = -1L
     private var baselineHandSize = -1f
     private var reachAnnounced = false
 
     fun reset() {
         activeX = 0; activeY = 0; alignedSince = -1L
+        lastSeenTarget = -1L; lastSeenHand = -1L
         baselineHandSize = -1f; reachAnnounced = false
     }
 
@@ -56,11 +57,12 @@ class SpatialEngine {
 
         val target = inp.targetBox
         if (target == null) {
-            return if (now - lastSeenTarget > LOST_GRACE_MS) Guidance.UNCERTAIN else Guidance.NONE
+            return if (lastSeenTarget >= 0 && now - lastSeenTarget > LOST_GRACE_MS) Guidance.UNCERTAIN else Guidance.NONE
         }
         val hx = inp.handX; val hy = inp.handY
         if (hx == null || hy == null) {
-            return if (now - lastSeenHand > LOST_GRACE_MS) Guidance.UNCERTAIN else Guidance.NONE
+            // Hand not yet in view after "guide me" is expected, not a tracking loss.
+            return if (lastSeenHand >= 0 && now - lastSeenHand > LOST_GRACE_MS) Guidance.UNCERTAIN else Guidance.NONE
         }
 
         val tx = target.centerX()

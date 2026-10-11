@@ -2,6 +2,8 @@ package com.reach.app
 
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.os.SystemClock
+import android.util.Log
 import com.reach.app.claude.ClaudeClient
 import com.reach.app.grounding.Candidate
 import com.reach.app.grounding.ObjectGrounder
@@ -20,6 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 enum class Mode { IDLE, INTERPRETING, TARGET_LOCKED, REACHING, DONE }
 
+private const val TARGET_HOLD_MS = 1500L
+
 class ReachController(
     private val grounder: ObjectGrounder,
     private val handTracker: HandTracker,
@@ -33,10 +37,27 @@ class ReachController(
     private val throttle = GuidanceThrottle()
     private val busy = AtomicBoolean(false)
 
+    // Blank when the color heuristic said "unknown": then the target is tracked by position only.
     @Volatile private var targetBeverage: String = ""
+    @Volatile private var targetName: String = ""
     @Volatile private var targetBox: RectF? = null
+    @Volatile private var targetId = -1
     @Volatile private var latestCandidates: List<Candidate> = emptyList()
+    private var lastTargetSeenMs = 0L
     private var frameCount = 0
+    private var logAt = 0L
+    private var logFrames = 0
+
+    /** Same beverage class, nearest to where the target last was; else nearest by position alone. */
+    private fun matchTarget(cands: List<Candidate>): Candidate? {
+        val prev = targetBox
+        fun dist(c: Candidate) = prev?.let {
+            Math.hypot((c.box.centerX() - it.centerX()).toDouble(), (c.box.centerY() - it.centerY()).toDouble())
+        } ?: 0.0
+        val pool = cands.filter { targetBeverage.isNotEmpty() && it.beverage == targetBeverage }
+            .ifEmpty { if (prev == null) emptyList() else cands.filter { dist(it) < 0.25 } }
+        return pool.minByOrNull { dist(it) }
+    }
 
     /** Called from the camera thread for every frame. Must stay fast. */
     fun onFrame(frame: Bitmap, tsMs: Long) {
@@ -47,9 +68,11 @@ class ReachController(
             if (frameCount % 3 == 0 || latestCandidates.isEmpty()) {
                 latestCandidates = grounder.ground(frame, tsMs)
                 if (mode == Mode.REACHING || mode == Mode.TARGET_LOCKED) {
-                    // Re-associate target by beverage class (cheap tracking).
-                    targetBox = latestCandidates.firstOrNull { it.beverage == targetBeverage }?.box
-                        ?: targetBox // keep last box briefly; SpatialEngine handles loss
+                    val m = matchTarget(latestCandidates)
+                    if (m != null) { targetBox = m.box; targetId = m.id; lastTargetSeenMs = tsMs }
+                    // Hold the last box briefly (a reaching hand can occlude the can), then drop it
+                    // so SpatialEngine reports UNCERTAIN.
+                    else if (tsMs - lastTargetSeenMs > TARGET_HOLD_MS) { targetBox = null; targetId = -1 }
                 }
             }
 
@@ -71,8 +94,14 @@ class ReachController(
                 }
             }
 
-            val tid = latestCandidates.firstOrNull { it.beverage == targetBeverage }?.id ?: -1
-            onUi(latestCandidates, tid, handPt, "mode=$mode target=$targetBeverage")
+            logFrames++
+            if (tsMs - logAt >= 1000) {
+                Log.i("REACH", "fps=$logFrames mode=$mode target=$targetName/$targetBeverage box=${targetBox != null} " +
+                    "hand=${handPt?.let { "%.2f,%.2f size=%.2f".format(it.first, it.second, hand.handSize) }} " +
+                    "cands=" + latestCandidates.joinToString { "${it.label}/${it.beverage}/${"%.2f".format(it.score)}@${"%.2f".format(it.box.centerX())},${"%.2f".format(it.box.centerY())}" })
+                logAt = tsMs; logFrames = 0
+            }
+            onUi(latestCandidates, targetId, handPt, "mode=$mode target=$targetName")
         } finally {
             busy.set(false)
         }
@@ -95,8 +124,12 @@ class ReachController(
                         speaker.say(r.question.ifBlank { "I'm not sure which object you mean." })
                         mode = Mode.IDLE
                     } else {
-                        targetBeverage = r.target
-                        targetBox = snapshot.firstOrNull { it.id == r.candidateId }?.box
+                        val chosen = snapshot.firstOrNull { it.id == r.candidateId }
+                        targetName = r.target
+                        targetBeverage = chosen?.beverage?.takeIf { it != "unknown" } ?: ""
+                        targetBox = chosen?.box
+                        targetId = chosen?.id ?: -1
+                        lastTargetSeenMs = SystemClock.uptimeMillis()
                         mode = Mode.TARGET_LOCKED
                         val conf = (r.confidence * 100).toInt()
                         val src = if (r.fromClaude) "" else " Offline mode."
@@ -107,8 +140,10 @@ class ReachController(
         }
     }
 
+    fun close() { grounder.close(); handTracker.close() }
+
     fun reset() {
-        mode = Mode.IDLE; targetBeverage = ""; targetBox = null
+        mode = Mode.IDLE; targetBeverage = ""; targetName = ""; targetBox = null; targetId = -1
         spatial.reset(); throttle.reset()
         speaker.say("Reset.")
     }

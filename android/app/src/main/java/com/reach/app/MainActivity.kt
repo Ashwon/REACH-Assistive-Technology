@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
         voice = VoiceInput(this)
 
         binding.btnListen.setOnClickListener {
+            if (!::controller.isInitialized) return@setOnClickListener // permissions still pending
             speaker.say("Listening.", interrupt = true)
             binding.btnListen.postDelayed({
                 voice.listen { text ->
@@ -50,7 +51,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }, 600) // let TTS finish before mic opens
         }
-        binding.btnReset.setOnClickListener { controller.reset() }
+        binding.btnReset.setOnClickListener { if (::controller.isInitialized) controller.reset() }
         binding.btnDepth.setOnClickListener {
             startActivity(Intent(this, DepthCheckActivity::class.java))
         }
@@ -84,8 +85,20 @@ class MainActivity : AppCompatActivity() {
         speaker.say("REACH ready. Press the bottom of the screen and ask for a drink.")
     }
 
+    // Debug builds only: adb shell am start -f 0x20000000 -n com.reach.app/.MainActivity --es utterance "find my coke"
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val text = intent.getStringExtra("utterance")
+        if (BuildConfig.DEBUG && text != null && ::controller.isInitialized) {
+            binding.txtHeard.text = text
+            controller.onUtterance(text)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        if (::camera.isInitialized) camera.stop() // drain the analyzer before closing the native models
+        if (::controller.isInitialized) controller.close()
         voice.destroy()
         speaker.shutdown()
     }
