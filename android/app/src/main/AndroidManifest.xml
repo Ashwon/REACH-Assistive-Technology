@@ -13,9 +13,12 @@
 
     <application
         android:allowBackup="false"
-        android:label="REACH"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.Material3.Dark.NoActionBar">
+        android:theme="@style/Theme.Reach">
 
         <!-- ARCore optional: app must run on devices without it (fallback Level 1) -->
         <meta-data android:name="com.google.ar.core" android:value="optional" />
@@ -23,7 +26,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustPan">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

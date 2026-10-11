@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">REACH</string>
+    <string name="tagline">The Last Meter of Independence.</string>
+
+    <string name="find_object">Find an Object</string>
+    <string name="start_guidance">Start Guidance</string>
+    <string name="searching">Searching…</string>
+    <string name="cancel">Cancel</string>
+    <string name="stop_guidance">Stop Guidance</string>
+
+    <string name="input_hint">What should I find?</string>
+    <string name="mic_desc">Speak your request</string>
+    <string name="listening">Listening…</string>
+    <string name="mic_off_helper">Microphone access is off. Type your request, or tap the microphone to allow it.</string>
+    <string name="mic_unavailable_helper">Voice input isn’t available on this phone. Type your request instead.</string>
+
+    <string name="speech_on_desc">Spoken guidance is on. Double-tap to turn it off.</string>
+    <string name="speech_off_desc">Spoken guidance is off. Double-tap to turn it on.</string>
+    <string name="settings_desc">Voice and accessibility settings</string>
+
+    <string name="guidance_label">Guidance</string>
+    <string name="direction_only">Direction only · no distance</string>
+    <string name="last_spoken">Last spoken: “%1$s”</string>
+    <string name="speech_off_note">Speech is off. Instructions appear here only.</string>
+
+    <string name="camera_view_desc">Live camera view with recognised objects and your fingertips</string>
+    <string name="camera_perm_title">Camera access needed</string>
+    <string name="camera_perm_body">REACH uses the camera to find objects and follow your hand.</string>
+    <string name="allow_camera">Allow camera</string>
+    <string name="camera_busy_title">Camera unavailable</string>
+    <string name="camera_busy_body">Another app may be using the camera. Close it, then return to REACH.</string>
+    <string name="models_title">Recognition couldn’t start</string>
+    <string name="models_body">REACH couldn’t load its on-device recognition. Reinstall the app and try again.</string>
+
+    <string name="settings_title">Voice &amp; accessibility</string>
+    <string name="spoken_guidance">Spoken guidance</string>
+    <string name="guidance_volume">Guidance volume</string>
+    <string name="test_voice">Test voice</string>
+    <string name="depth_check">Depth sensor check (experimental)</string>
+    <string name="depth_check_note">Opens a separate ARCore test screen. Guidance pauses while it is open.</string>
+
+    <string name="spoken_ready">REACH ready. Tap Find an Object, or type what you need.</string>
+    <string name="spoken_speech_on">Spoken guidance on.</string>
+    <string name="spoken_speech_off">Spoken guidance off.</string>
+    <string name="spoken_test">This is how guidance will sound. Move left.</string>
+    <string name="spoken_listening">Listening.</string>
+    <string name="spoken_not_heard">I didn’t hear that.</string>
+    <string name="spoken_no_camera">The camera is off, so I can’t look for objects yet.</string>
+    <string name="spoken_models_failed">Recognition couldn’t start on this phone.</string>
+</resources>

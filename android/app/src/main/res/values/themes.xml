@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Reach" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/reach_primary</item>
+        <item name="colorOnPrimary">@color/reach_on_primary</item>
+        <item name="colorPrimaryContainer">@color/reach_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/reach_on_primary_container</item>
+        <item name="colorSecondaryContainer">@color/reach_surface_high</item>
+        <item name="colorOnSecondaryContainer">@color/reach_text</item>
+        <item name="colorSurface">@color/reach_surface</item>
+        <item name="colorOnSurface">@color/reach_text</item>
+        <item name="colorOnSurfaceVariant">@color/reach_text_secondary</item>
+        <item name="colorSurfaceContainerLow">@color/reach_surface</item>
+        <item name="colorSurfaceContainer">@color/reach_surface</item>
+        <item name="colorSurfaceContainerHigh">@color/reach_surface_high</item>
+        <item name="colorOutline">@color/reach_outline</item>
+        <item name="android:colorBackground">@color/reach_bg</item>
+        <item name="android:windowBackground">@color/reach_bg</item>
+        <item name="android:statusBarColor">@color/reach_bg</item>
+        <item name="android:navigationBarColor">@color/reach_bg</item>
+    </style>
+
+    <style name="TextAppearance.Reach.Brand" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:fontFamily">sans-serif-black</item>
+        <item name="android:letterSpacing">0.18</item>
+        <item name="android:textColor">@color/reach_text</item>
+    </style>
+
+    <style name="TextAppearance.Reach.Label" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.12</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textColor">@color/reach_text_secondary</item>
+    </style>
+
+    <style name="TextAppearance.Reach.Guidance" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">32sp</item>
+        <item name="android:textColor">@color/reach_text</item>
+    </style>
+
+    <style name="TextAppearance.Reach.Pill" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/reach_text</item>
+    </style>
+
+    <style name="Widget.Reach.Pill" parent="">
+        <item name="android:background">@drawable/bg_pill</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.Reach.Pill</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:drawablePadding">8dp</item>
+    </style>
+</resources>

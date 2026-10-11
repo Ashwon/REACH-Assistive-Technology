@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:accessibilityHeading="true"
+        android:text="@string/settings_title"
+        android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+        android:textColor="@color/reach_text" />
+
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/switchSpeech"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:minHeight="64dp"
+        android:text="@string/spoken_guidance"
+        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+        android:textSize="18sp" />
+
+    <TextView
+        android:id="@+id/volumeLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:labelFor="@id/sliderVolume"
+        android:text="@string/guidance_volume"
+        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+        android:textColor="@color/reach_text"
+        android:textSize="18sp" />
+
+    <!-- Floor of 10%: guidance that is "on" must stay audible; use the switch to silence it. -->
+    <com.google.android.material.slider.Slider
+        android:id="@+id/sliderVolume"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:contentDescription="@string/guidance_volume"
+        android:stepSize="0.1"
+        android:valueFrom="0.1"
+        android:valueTo="1.0" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnTestVoice"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="@string/test_voice"
+        android:textSize="17sp" />
+
+    <com.google.android.material.divider.MaterialDivider
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginVertical="16dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnDepth"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="@string/depth_check"
+        android:textSize="16sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/depth_check_note"
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        android:textColor="@color/reach_text_secondary" />
+</LinearLayout>

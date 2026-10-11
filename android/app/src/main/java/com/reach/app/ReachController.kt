@@ -11,6 +11,7 @@ import com.reach.app.grounding.RecentCandidates
 import com.reach.app.grounding.TargetLock
 import com.reach.app.grounding.TargetPick
 import com.reach.app.grounding.TargetSpec
+import com.reach.app.grounding.TrackStatus
 import com.reach.app.grounding.pickByPosition
 import com.reach.app.grounding.pickTarget
 import com.reach.app.hand.HandResult
@@ -18,6 +19,7 @@ import com.reach.app.hand.HandTracker
 import com.reach.app.spatial.*
 import com.reach.app.speech.Speaker
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
@@ -42,13 +44,24 @@ private const val RELOCK_QUIET_MS = 1500L
 
 enum class Mode { IDLE, INTERPRETING, TARGET_LOCKED, REACHING, DONE }
 
+/** The state the screen shows, built once per camera frame from the same values guidance runs on. */
+data class ReachSnapshot(
+    val mode: Mode,
+    val target: String,          // what the user asked for ("bottle", "coke"); "" when nothing is locked
+    val track: TrackStatus,      // of the locked target
+    val targetId: Int,           // -1 when nothing is locked
+    val candidates: List<Candidate>,
+    val hand: HandResult,
+    val cue: Guidance            // engine output while guiding, NONE otherwise
+)
+
 class ReachController(
     private val grounder: ObjectGrounder,
     private val handTracker: HandTracker,
     private val claude: ClaudeClient,
     private val speaker: Speaker,
     private val scope: CoroutineScope,
-    private val onUi: (List<Candidate>, Int, HandResult, String) -> Unit
+    private val onUi: (ReachSnapshot) -> Unit
 ) {
     @Volatile var mode = Mode.IDLE; private set
     private val spatial = SpatialEngine()
@@ -70,6 +83,7 @@ class ReachController(
     private val startGuide = AtomicBoolean(false)
     @Volatile private var lastCue = Guidance.NONE
     private var announcedRelocks = 0 // camera thread
+    private var interpretJob: Job? = null // main thread
 
     // Debug log accumulators: camera thread, except the det* ones written by the detector thread.
     private var logAt = 0L
@@ -130,8 +144,9 @@ class ReachController(
                 })
                 logAt = tsMs; logFrames = 0; handNs = 0
             }
-            onUi(latestCandidates, if (lock.active) lock.id else -1, hand,
-                "mode=$mode target=${targetName.ifEmpty { "-" }} ${lock.status}" + if (mode == Mode.REACHING) " 2D cue=$lastCue" else "")
+            val m = mode
+            onUi(ReachSnapshot(m, targetName, lock.status, if (lock.active) lock.id else -1, latestCandidates, hand,
+                if (m == Mode.REACHING || m == Mode.DONE) lastCue else Guidance.NONE))
         } finally {
             busy.set(false)
         }
@@ -176,7 +191,8 @@ class ReachController(
                 lock.clear() // a new request never leaves guidance pointed at the previous object
                 mode = Mode.INTERPRETING
                 val snapshot = selectable
-                scope.launch {
+                interpretJob?.cancel()
+                interpretJob = scope.launch {
                     val r = claude.interpret(text, snapshot)
                     pendingSpec = r.ambiguousSpec
                     val chosen = snapshot.firstOrNull { it.id == r.candidateId }
@@ -207,7 +223,9 @@ class ReachController(
         grounder.close(); handTracker.close()
     }
 
+    /** Main thread. Also cancels a request still waiting on the backend, so it cannot lock on afterwards. */
     fun reset() {
+        interpretJob?.cancel()
         mode = Mode.IDLE; targetName = ""; pendingSpec = null; lock.clear() // guidance state resets on the next "guide me"
         speaker.say("Reset.")
     }

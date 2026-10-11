@@ -54,13 +54,13 @@ class CameraXSource(
                 }
             }
 
-            provider.unbindAll()
-            provider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                analysis
-            )
+            // A missing or busy camera must not crash the app; the screen reports it when no frames arrive.
+            try {
+                provider.unbindAll()
+                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+            } catch (e: Exception) {
+                Log.e("REACH", "camera bind failed", e)
+            }
         }, ContextCompat.getMainExecutor(context))
     }
 

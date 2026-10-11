@@ -22,6 +22,22 @@ import kotlin.math.abs
  */
 enum class Guidance { LEFT, RIGHT, UP, DOWN, LINED_UP_2D, CLOSER, STOP, REACHED, HAND_COVERS_TARGET, HAND_LOST, TARGET_LOST, NONE }
 
+/** The words for a cue, shared by the voice and the screen so both always say the same thing. */
+fun Guidance.phrase(target: String): String? = when (this) {
+    Guidance.LEFT -> "Move left."
+    Guidance.RIGHT -> "Move right."
+    Guidance.UP -> "Move up."
+    Guidance.DOWN -> "Move down."
+    Guidance.LINED_UP_2D -> "Lined up. Reach forward slowly."
+    Guidance.CLOSER -> "Move closer."
+    Guidance.STOP -> "Stop."
+    Guidance.REACHED -> "${target.replaceFirstChar { it.uppercase() }} reached."
+    Guidance.HAND_COVERS_TARGET -> "Your hand is covering the $target. Reach forward slowly."
+    Guidance.HAND_LOST -> "I can't see your hand."
+    Guidance.TARGET_LOST -> "I can't see the $target. Hold still."
+    Guidance.NONE -> null
+}
+
 /** Metric depth (m) of the target and the index fingertip from one depth map registered to the analysis frame. */
 data class DepthSample(val targetM: Float, val tipM: Float) {
     val valid get() = targetM.isFinite() && tipM.isFinite() && targetM in MIN_M..MAX_M && tipM in MIN_M..MAX_M

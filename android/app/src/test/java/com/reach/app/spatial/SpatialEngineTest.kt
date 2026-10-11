@@ -132,6 +132,14 @@ class SpatialEngineTest {
     }
 }
 
+class GuidancePhraseTest {
+    @Test fun everyCueButNoneHasWordsAndNamesTheTarget() {
+        for (g in Guidance.values()) assertEquals("$g", g == NONE, g.phrase("bottle") == null)
+        assertEquals("Bottle reached.", REACHED.phrase("bottle"))
+        assertEquals("I can't see the bottle. Hold still.", TARGET_LOST.phrase("bottle"))
+    }
+}
+
 class GuidanceThrottleTest {
     @Test fun changedCuesWaitTheGapRepeatsWaitLonger() {
         val th = GuidanceThrottle(minGapMs = 1100, repeatMs = 2600)

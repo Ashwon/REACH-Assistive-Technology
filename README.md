@@ -50,7 +50,7 @@ Camera frame → EfficientDet candidates + HSV beverage color (own thread, ~3 Hz
 | **V3 depth** | Press DEPTH | "Depth API supported: true" + plausible mm at center; `depthcheck` log lines give ARCore's image size, intrinsics, depth size | Informational only: depth is not in the guidance loop (see below) |
 | **V4 spatial** | Lock target (below), "guide me", move hand around | Cues change L/R/U/D without chatter, then "Lined up. Reach forward slowly." | Thresholds: `exitX/enterX/exitY/enterY` in `SpatialEngine` |
 | **V5 Claude** | "Find my Coke" with backend up | TTS: "Found the coke, NN percent sure." Two red cans → clarification question | Kill backend → app auto-switches to offline keyword mode |
-| **V6 voice** | Tap big button, speak | Transcript appears top of screen | Type-free demo: keep offline mode phrases exact ("find my coke", "guide me") |
+| **V6 voice** | Tap **Find an Object** with the field empty (or the mic icon), speak | Transcript appears in the field and is submitted | Type the request instead; offline phrases: "find my coke", "guide me" |
 
 ## Demo script (2 min)
 
@@ -75,6 +75,24 @@ Camera frame → EfficientDet candidates + HSV beverage color (own thread, ~3 Hz
   covering the bottle." when the fingertip is over where it was). A re-lock is announced ("Found the bottle again.").
 - Hand missing > 0.5 s (4 s right after "guide me") → "I can't see your hand."
 - Speech recognition fails → RESET + retry; exact phrases work offline.
+
+## Screen (`MainActivity`, `ui/ReachStatus.kt`, `ui/OverlayView.kt`)
+
+One portrait screen, dark high-contrast theme, Material 3 (already a dependency):
+- **Top:** REACH + tagline; speech on/off (persisted) and a settings sheet (speech switch, guidance volume
+  10–100 %, test voice, the ARCore depth check).
+- **Camera card:** the real CameraX preview (letterboxed, so the whole analysis frame is visible) with the
+  detector's boxes, the locked target, all five fingertips (index ringed, a too-far hand dimmed) and, while
+  guiding, the fingertip→target line. Status pill + "Seeing …" / hand chips come from `ReachSnapshot`.
+- **Guidance card:** the engine's current cue in the same words the voice uses (`Guidance.phrase`),
+  "Direction only · no distance" while guiding, and the last phrase actually sent to TTS.
+- **Request:** text field with a mic icon; **Find an Object** submits typed text or, if empty, listens.
+  The actions follow the controller's real mode: Find → (Searching…, Cancel) → Start Guidance / Cancel →
+  Stop Guidance.
+- Status wording is derived only from real state and is unit-tested: "Guiding" exists only while guiding,
+  "Reached" only after the engine reported it (depth path; never in 2D).
+- Camera permission refused, camera busy (no frames for 3 s) and model-load failure each replace the live
+  view with a plain-language message instead of closing the app.
 
 ## Guidance geometry (`spatial/SpatialEngine.kt`)
 

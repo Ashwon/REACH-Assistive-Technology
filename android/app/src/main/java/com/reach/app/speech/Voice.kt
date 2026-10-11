@@ -9,45 +9,45 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import com.reach.app.spatial.Guidance
+import com.reach.app.spatial.phrase
 import java.util.Locale
 
-/** V6 — TTS output. Guidance phrases are short by design. */
+/** V6 — TTS output. Guidance phrases are short by design. Safe to call from any thread. */
 class Speaker(context: Context) {
     private var ready = false
     private var pending: String? = null
     private lateinit var tts: TextToSpeech
+
+    /** Off = nothing is spoken; phrases still reach [onSpoken] so the screen can show them. */
+    @Volatile var enabled = true
+    /** 0..1, relative to the device's media volume. */
+    @Volatile var volume = 1f
+    /** Every phrase the app means to say, muted or not. */
+    @Volatile var onSpoken: ((String) -> Unit)? = null
+
     init {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts.language = Locale.US
                 ready = true
-                pending?.let { say(it) }
+                pending?.let { speak(it, true) }
             }
         }
     }
 
     fun say(text: String, interrupt: Boolean = true) {
+        onSpoken?.invoke(text)
+        if (!enabled) return
         if (!ready) { pending = text; return }
-        tts.speak(text, if (interrupt) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "reach")
+        speak(text, interrupt)
     }
 
-    fun sayGuidance(g: Guidance, target: String) {
-        val text = when (g) {
-            Guidance.LEFT -> "Move left."
-            Guidance.RIGHT -> "Move right."
-            Guidance.UP -> "Move up."
-            Guidance.DOWN -> "Move down."
-            Guidance.LINED_UP_2D -> "Lined up. Reach forward slowly."
-            Guidance.CLOSER -> "Move closer."
-            Guidance.STOP -> "Stop."
-            Guidance.REACHED -> "${target.replaceFirstChar { it.uppercase() }} reached."
-            Guidance.HAND_COVERS_TARGET -> "Your hand is covering the $target. Reach forward slowly."
-            Guidance.HAND_LOST -> "I can't see your hand."
-            Guidance.TARGET_LOST -> "I can't see the $target. Hold still."
-            Guidance.NONE -> return
-        }
-        say(text)
+    private fun speak(text: String, interrupt: Boolean) {
+        val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume) }
+        tts.speak(text, if (interrupt) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, params, "reach")
     }
+
+    fun sayGuidance(g: Guidance, target: String) { say(g.phrase(target) ?: return) }
 
     fun shutdown() = tts.shutdown()
 }
