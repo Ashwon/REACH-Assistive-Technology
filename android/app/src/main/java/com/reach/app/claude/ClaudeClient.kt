@@ -5,6 +5,11 @@ import android.util.Base64
 import android.util.Log
 import com.reach.app.BuildConfig
 import com.reach.app.grounding.Candidate
+import com.reach.app.grounding.SupportedClasses
+import com.reach.app.grounding.TargetPick
+import com.reach.app.grounding.TargetSpec
+import com.reach.app.grounding.clarifyQuestion
+import com.reach.app.grounding.pickTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -30,7 +35,8 @@ data class Interpretation(
     val confidence: Double,
     val needsClarification: Boolean,
     val question: String,          // clarification question or spoken ack
-    val fromClaude: Boolean
+    val fromClaude: Boolean,
+    val ambiguousSpec: TargetSpec? = null   // offline only: several matches, waiting for "left"/"right"
 )
 
 class ClaudeClient {
@@ -84,22 +90,24 @@ class ClaudeClient {
             }
         }
 
-    /** Offline fallback: exact-keyword target selection. No fake confidence. */
+    /**
+     * Offline fallback: resolves the spoken object to supported COCO classes (SupportedClasses).
+     * Confidence is the detector's own score. Several matches are never picked silently: it asks.
+     */
     fun interpretLocal(utterance: String, candidates: List<Candidate>): Interpretation {
-        val u = utterance.lowercase()
-        val wanted = listOf("coke", "cola", "pepsi", "sprite", "monster")
-            .firstOrNull { it in u }
-            ?.let { if (it == "cola") "coke" else it }
+        val spec = SupportedClasses.resolve(utterance)
             ?: return Interpretation("UNKNOWN", "", -1, 0.0, true,
-                "I didn't catch which drink you want. Say Coke, Pepsi, Sprite, or Monster.", false)
-
-        val match = candidates.firstOrNull { it.beverage == wanted }
-        return if (match != null)
-            Interpretation("REACH_OBJECT", wanted, match.id, 0.5, false,
-                "Offline mode. Targeting the $wanted.", false)
-        else
-            Interpretation("REACH_OBJECT", wanted, -1, 0.0, true,
-                "I can't see a $wanted right now. Try panning slowly.", false)
+                "I didn't catch which object you want. Try bottle, cup, phone, or chair.", false)
+        return when (val pick = pickTarget(spec, candidates)) {
+            is TargetPick.One ->
+                Interpretation("REACH_OBJECT", spec.name, pick.c.id, pick.c.score.toDouble(), false, "", false)
+            is TargetPick.Ambiguous ->
+                Interpretation("REACH_OBJECT", spec.name, -1, 0.0, true,
+                    clarifyQuestion(spec, pick.options.size), false, ambiguousSpec = spec)
+            TargetPick.None ->
+                Interpretation("REACH_OBJECT", spec.name, -1, 0.0, true,
+                    "I can't see a ${spec.name} right now. Try panning slowly.", false)
+        }
     }
 
     private fun toB64(bmp: Bitmap): String {

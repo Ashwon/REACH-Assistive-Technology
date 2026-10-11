@@ -32,6 +32,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Chest-mounted and used by touch-free voice: a screen timeout would kill the camera.
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         speaker = Speaker(this)
         voice = VoiceInput(this)

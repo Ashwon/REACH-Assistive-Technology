@@ -3,7 +3,6 @@ package com.reach.app.grounding
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.RectF
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
@@ -16,12 +15,12 @@ import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
  * open-vocab model tomorrow) can be swapped without touching anything else.
  */
 data class Candidate(
-    val id: Int,
-    val label: String,        // detector class, e.g. "bottle"
-    val beverage: String,     // color-derived guess: coke/pepsi/sprite/monster/unknown
-    val box: RectF,           // normalized 0..1
+    val id: Int,              // stable across frames (see CandidateTracker)
+    val label: String,        // COCO class from the model's labels.txt, e.g. "bottle"
+    val beverage: String,     // color-derived guess for drink containers: coke/pepsi/sprite/monster/unknown
+    val box: Box,             // normalized 0..1
     val score: Float,
-    val crop: Bitmap?         // small crop for Claude, null once selection done
+    val crop: Bitmap?         // small crop for Claude's thumbnail
 )
 
 interface ObjectGrounder {
@@ -31,56 +30,65 @@ interface ObjectGrounder {
 }
 
 /**
- * Default grounder: MediaPipe EfficientDet-Lite0 proposes container-like
- * objects; HSV dominant color maps them to the 4 demo beverages.
+ * Default grounder: MediaPipe EfficientDet-Lite0 (COCO, 320x320; MediaPipe applies the model's
+ * own resize/normalization). Detections are kept only for [allowed] classes above [minScore]
+ * with a valid box, and get stable ids from a tracker. HSV color maps drink containers to the
+ * demo beverages. It cannot recognize anything outside the COCO label set.
  * Requires app/src/main/assets/efficientdet_lite0.tflite.
- *
- * This IS the controlled demo mode from the spec — it is a real detector,
- * not a hard-coded fake, but its vocabulary is deliberately curated.
  */
-class LocalDetectorGrounder(context: Context) : ObjectGrounder {
+class LocalDetectorGrounder(
+    context: Context,
+    private val allowed: Set<String> = SupportedClasses.DETECTED,
+    private val minScore: Float = 0.35f
+) : ObjectGrounder {
 
+    private val tracker = CandidateTracker()
     private var lastRawLog = 0L
-    private val acceptedClasses = setOf("bottle", "cup", "vase", "wine glass", "can")
 
     private val detector: ObjectDetector = ObjectDetector.createFromOptions(
         context,
         ObjectDetector.ObjectDetectorOptions.builder()
             .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientdet_lite0.tflite").build())
             .setRunningMode(RunningMode.VIDEO)
-            .setScoreThreshold(0.35f)
-            .setMaxResults(8)
+            .setScoreThreshold(minScore)
+            // Unsupported classes (tv, dining table, ...) still occupy result slots, so leave headroom.
+            .setMaxResults(20)
             .build()
     )
 
     override fun ground(frame: Bitmap, timestampMs: Long): List<Candidate> {
         val result = detector.detectForVideo(BitmapImageBuilder(frame).build(), timestampMs)
-        if (timestampMs - lastRawLog >= 1000) {
-            lastRawLog = timestampMs
-            Log.i("REACH", "raw detections: " + result.detections().joinToString {
-                it.categories().firstOrNull()?.let { c -> "${c.categoryName()}:${"%.2f".format(c.score())}" } ?: "?"
-            })
-        }
-        val out = ArrayList<Candidate>()
-        var id = 0
+        val dets = ArrayList<Det>()
+        val rejected = ArrayList<String>()
         for (det in result.detections()) {
             val cat = det.categories().firstOrNull() ?: continue
-            if (cat.categoryName().lowercase() !in acceptedClasses) continue
-            val b = det.boundingBox() // pixel coords
-            val box = RectF(
-                (b.left / frame.width).coerceIn(0f, 1f),
-                (b.top / frame.height).coerceIn(0f, 1f),
-                (b.right / frame.width).coerceIn(0f, 1f),
-                (b.bottom / frame.height).coerceIn(0f, 1f)
+            val name = cat.categoryName().lowercase()
+            val b = det.boundingBox() // pixel coords in the frame we passed
+            val box = Box.clamped(
+                b.left / frame.width, b.top / frame.height, b.right / frame.width, b.bottom / frame.height
             )
-            val crop = safeCrop(frame, box)
-            val beverage = crop?.let { ColorClassifier.classify(it) } ?: "unknown"
-            out.add(Candidate(id++, cat.categoryName(), beverage, box, cat.score(), crop))
+            when {
+                name !in allowed -> rejected.add("$name:${"%.2f".format(cat.score())}")
+                cat.score() < minScore || !box.isValid() -> rejected.add("$name:invalid")
+                else -> dets.add(Det(name, cat.score(), box))
+            }
         }
-        return out
+        val ids = tracker.assign(dets, timestampMs)
+        if (timestampMs - lastRawLog >= 1000) {
+            lastRawLog = timestampMs
+            Log.i("REACH", "kept=" + dets.mapIndexed { i, d ->
+                "#${ids[i]} ${d.label}:${"%.2f".format(d.score)}"
+            } + " rejected=$rejected")
+        }
+        return dets.mapIndexed { i, d ->
+            val crop = safeCrop(frame, d.box)
+            val beverage = if (d.label in SupportedClasses.DRINK_CONTAINERS)
+                crop?.let { ColorClassifier.classify(it) } ?: "unknown" else "unknown"
+            Candidate(ids[i], d.label, beverage, d.box, d.score, crop)
+        }
     }
 
-    private fun safeCrop(frame: Bitmap, box: RectF): Bitmap? = try {
+    private fun safeCrop(frame: Bitmap, box: Box): Bitmap? = try {
         val l = (box.left * frame.width).toInt().coerceIn(0, frame.width - 2)
         val t = (box.top * frame.height).toInt().coerceIn(0, frame.height - 2)
         val w = ((box.right - box.left) * frame.width).toInt().coerceIn(2, frame.width - l)

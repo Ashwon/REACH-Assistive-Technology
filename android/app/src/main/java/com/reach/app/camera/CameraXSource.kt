@@ -3,6 +3,7 @@ package com.reach.app.camera
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -22,6 +23,8 @@ class CameraXSource(
     private val onFrame: (Bitmap, Long) -> Unit
 ) {
     private val executor = Executors.newSingleThreadExecutor()
+    private var convNs = 0L
+    private var convFrames = 0
 
     fun start() {
         val future = ProcessCameraProvider.getInstance(context)
@@ -33,15 +36,18 @@ class CameraXSource(
             }
 
             val analysis = ImageAnalysis.Builder()
-                .setTargetResolution(android.util.Size(640, 480))
+                .setTargetAspectRatio(AspectRatio.RATIO_4_3) // same field of view as the (default 4:3) preview
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .build()
 
             analysis.setAnalyzer(executor) { proxy ->
                 try {
+                    val t0 = System.nanoTime()
                     val bmp = proxy.toBitmap() // RGBA_8888 supported by CameraX
                     val rotated = rotate(bmp, proxy.imageInfo.rotationDegrees)
+                    convNs += System.nanoTime() - t0
+                    if (++convFrames == 20) { Log.i("REACH", "convMs=${convNs / convFrames / 1_000_000} ${rotated.width}x${rotated.height}"); convNs = 0; convFrames = 0 }
                     onFrame(rotated, proxy.imageInfo.timestamp)
                 } finally {
                     proxy.close()

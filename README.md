@@ -37,7 +37,8 @@ Camera frame → EfficientDet candidates + HSV beverage color
    No Wi-Fi on the phone? Over USB use `adb reverse tcp:8000 tcp:8000` and build with
    `-PbackendUrl=http://127.0.0.1:8000`. Backend tests: `cd backend && python3 -m pytest -q`.
    Debug builds log pipeline state under the `REACH` tag (`adb logcat | grep "REACH   :"`) and accept
-   a typed utterance: `adb shell am start -f 0x20000000 -n com.reach.app/.MainActivity --es utterance "find my coke"`.
+   a typed utterance: `adb shell "am start -f 0x20000000 -n com.reach.app/.MainActivity --es utterance 'find the person'"`
+   (the inner single quotes matter). Unit tests: `cd android && ./gradlew testDebugUnitTest`.
 
 ## Milestone test plan (run in this order)
 
@@ -45,7 +46,7 @@ Camera frame → EfficientDet candidates + HSV beverage color
 |---|---|---|---|
 | **V0 camera** | Launch app | Live rear preview, no stutter after 2 min | Lower analysis res to 480×360 in `CameraXSource` |
 | **V1 hand** | Hold hand ~40 cm in front | Cyan dot rides your index fingertip | Increase lighting; drop `MinHandDetectionConfidence` to 0.3 |
-| **V2 grounding** | 4 cans on a plain table, ~50–80 cm | Yellow boxes labeled coke/pepsi/sprite/monster | Tune `ColorClassifier` thresholds live; raise cans on a box for a clean background |
+| **V2 grounding** | A bottle/cup/phone/chair on a table, ~50–80 cm | Yellow boxes labeled `#id label score` (drink containers add a color guess) | Check `adb logcat | grep "REACH   : kept"` for what the detector reports; tune `SupportedClasses` / `ColorClassifier` |
 | **V3 depth** | Press DEPTH TEST button | "Depth API supported: true" + plausible mm at center | If false/fails: ship Level 1 (2D). Demo unaffected. |
 | **V4 spatial** | Lock target (below), move hand around | Cues change L/R/U/D without chatter | Widen `ENTER_X/EXIT_X` gap |
 | **V5 Claude** | "Find my Coke" with backend up | TTS: "Found the coke, NN percent sure." Two red cans → clarification question | Kill backend → app auto-switches to offline keyword mode |
@@ -75,8 +76,13 @@ Camera frame → EfficientDet candidates + HSV beverage color
 ## Honest limits (say these out loud in the pitch)
 
 - No centimeter accuracy claim; proximity is a heuristic in Level 1.
-- HSV color classing is demo-curated for 4 beverages; open-vocabulary grounding
-  slots in behind `ObjectGrounder` later (that's why the interface exists).
+- The detector is EfficientDet-Lite0 (COCO). It can only report the COCO names in its
+  embedded labels, and has **no `can` class**: a soda can is only found if the model
+  happens to call it a bottle/cup/vase. The allowlist lives in `SupportedClasses`
+  (`grounding/Detection.kt`); anything else is logged as `rejected` and ignored.
+- Beverage identity (coke/pepsi/sprite/monster) is an HSV color guess on top of those
+  containers, demo-curated and unverified on real cans.
+- Open-vocabulary grounding would slot in behind `ObjectGrounder` later.
 - Not a safety/medical device; final contact is performed by the user.
 
 ## Security

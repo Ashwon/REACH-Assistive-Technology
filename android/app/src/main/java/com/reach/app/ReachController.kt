@@ -7,6 +7,12 @@ import android.util.Log
 import com.reach.app.claude.ClaudeClient
 import com.reach.app.grounding.Candidate
 import com.reach.app.grounding.ObjectGrounder
+import com.reach.app.grounding.RecentCandidates
+import com.reach.app.grounding.TargetLock
+import com.reach.app.grounding.TargetPick
+import com.reach.app.grounding.TargetSpec
+import com.reach.app.grounding.pickByPosition
+import com.reach.app.grounding.pickTarget
 import com.reach.app.hand.HandTracker
 import com.reach.app.spatial.*
 import com.reach.app.speech.Speaker
@@ -20,9 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Claude is called exactly once per utterance (INTERPRETING). The per-frame
  * loop (onFrame) is 100% local: grounder + hand tracker + SpatialEngine.
  */
-enum class Mode { IDLE, INTERPRETING, TARGET_LOCKED, REACHING, DONE }
+private const val GROUND_INTERVAL_MS = 300L
 
-private const val TARGET_HOLD_MS = 1500L
+enum class Mode { IDLE, INTERPRETING, TARGET_LOCKED, REACHING, DONE }
 
 class ReachController(
     private val grounder: ObjectGrounder,
@@ -36,59 +42,54 @@ class ReachController(
     private val spatial = SpatialEngine()
     private val throttle = GuidanceThrottle()
     private val busy = AtomicBoolean(false)
+    private val lock = TargetLock()
 
-    // Blank when the color heuristic said "unknown": then the target is tracked by position only.
-    @Volatile private var targetBeverage: String = ""
     @Volatile private var targetName: String = ""
-    @Volatile private var targetBox: RectF? = null
-    @Volatile private var targetId = -1
+    /** Set when an offline request matched several objects; the next "left/right" answers it. */
+    @Volatile private var pendingSpec: TargetSpec? = null
     @Volatile private var latestCandidates: List<Candidate> = emptyList()
-    private var lastTargetSeenMs = 0L
-    private var frameCount = 0
+    private val recent = RecentCandidates()
+    /** latestCandidates plus objects that blinked out within the last second; what requests resolve against. */
+    @Volatile private var selectable: List<Candidate> = emptyList()
+    private var lastGroundMs = Long.MIN_VALUE / 2
+
+    // Debug log accumulators (camera thread only).
     private var logAt = 0L
     private var logFrames = 0
-
-    /** Same beverage class, nearest to where the target last was; else nearest by position alone. */
-    private fun matchTarget(cands: List<Candidate>): Candidate? {
-        val prev = targetBox
-        fun dist(c: Candidate) = prev?.let {
-            Math.hypot((c.box.centerX() - it.centerX()).toDouble(), (c.box.centerY() - it.centerY()).toDouble())
-        } ?: 0.0
-        val pool = cands.filter { targetBeverage.isNotEmpty() && it.beverage == targetBeverage }
-            .ifEmpty { if (prev == null) emptyList() else cands.filter { dist(it) < 0.25 } }
-        return pool.minByOrNull { dist(it) }
-    }
+    private var groundNs = 0L; private var groundRuns = 0
+    private var handNs = 0L
 
     /** Called from the camera thread for every frame. Must stay fast. */
     fun onFrame(frame: Bitmap, tsMs: Long) {
         if (!busy.compareAndSet(false, true)) return
         try {
-            frameCount++
-            // Ground every 3rd frame (~5 Hz at 15 fps) — detector is the slow part.
-            if (frameCount % 3 == 0 || latestCandidates.isEmpty()) {
+            // The detector (~150 ms) is the slow part: run it on a clock, not per frame, so an empty
+            // scene does not drag the hand-tracking loop down to detector speed.
+            if (tsMs - lastGroundMs >= GROUND_INTERVAL_MS) {
+                lastGroundMs = tsMs
+                val t0 = System.nanoTime()
                 latestCandidates = grounder.ground(frame, tsMs)
-                if (mode == Mode.REACHING || mode == Mode.TARGET_LOCKED) {
-                    val m = matchTarget(latestCandidates)
-                    if (m != null) { targetBox = m.box; targetId = m.id; lastTargetSeenMs = tsMs }
-                    // Hold the last box briefly (a reaching hand can occlude the can), then drop it
-                    // so SpatialEngine reports UNCERTAIN.
-                    else if (tsMs - lastTargetSeenMs > TARGET_HOLD_MS) { targetBox = null; targetId = -1 }
-                }
+                selectable = recent.update(latestCandidates, tsMs)
+                groundNs += System.nanoTime() - t0; groundRuns++
+                if (mode == Mode.REACHING || mode == Mode.TARGET_LOCKED) lock.update(latestCandidates, tsMs)
             }
 
+            val t1 = System.nanoTime()
             val hand = handTracker.detect(frame, tsMs)
+            handNs += System.nanoTime() - t1
             val handPt = if (hand.present) Pair(hand.indexTipX, hand.indexTipY) else null
 
             if (mode == Mode.REACHING) {
                 val cue = spatial.update(
                     SpatialInput(
-                        targetBox = targetBox,
+                        targetBox = lock.box?.let { RectF(it.left, it.top, it.right, it.bottom) },
                         handX = handPt?.first, handY = handPt?.second,
                         handSize = if (hand.present) hand.handSize else null,
                         timestampMs = tsMs
                     )
                 )
                 throttle.filter(cue, tsMs)?.let { spoken ->
+                    Log.i("REACH", "cue=$spoken target=${lock.box?.let { "%.2f,%.2f".format(it.centerX(), it.centerY()) }} hand=${handPt?.let { "%.2f,%.2f".format(it.first, it.second) }}")
                     speaker.sayGuidance(spoken)
                     if (spoken == Guidance.REACHED) mode = Mode.DONE
                 }
@@ -96,12 +97,14 @@ class ReachController(
 
             logFrames++
             if (tsMs - logAt >= 1000) {
-                Log.i("REACH", "fps=$logFrames mode=$mode target=$targetName/$targetBeverage box=${targetBox != null} " +
+                Log.i("REACH", "fps=$logFrames groundMs=${if (groundRuns > 0) groundNs / groundRuns / 1_000_000 else 0} " +
+                    "handMs=${handNs / logFrames / 1_000_000} mode=$mode target=$targetName#${lock.id} ${lock.status} " +
                     "hand=${handPt?.let { "%.2f,%.2f size=%.2f".format(it.first, it.second, hand.handSize) }} " +
-                    "cands=" + latestCandidates.joinToString { "${it.label}/${it.beverage}/${"%.2f".format(it.score)}@${"%.2f".format(it.box.centerX())},${"%.2f".format(it.box.centerY())}" })
-                logAt = tsMs; logFrames = 0
+                    "cands=" + latestCandidates.joinToString { "#${it.id} ${it.label}/${it.beverage}/${"%.2f".format(it.score)}" })
+                logAt = tsMs; logFrames = 0; groundNs = 0; groundRuns = 0; handNs = 0
             }
-            onUi(latestCandidates, targetId, handPt, "mode=$mode target=$targetName")
+            onUi(latestCandidates, if (lock.active) lock.id else -1, handPt,
+                "mode=$mode target=${targetName.ifEmpty { "-" }} ${lock.status}")
         } finally {
             busy.set(false)
         }
@@ -109,41 +112,54 @@ class ReachController(
 
     /** Called once per recognized utterance. */
     fun onUtterance(text: String) {
+        val lower = text.lowercase()
+        val pending = pendingSpec
+        val answered = pending?.let { spec ->
+            (pickTarget(spec, selectable) as? TargetPick.Ambiguous)
+                ?.let { pickByPosition(it.options, lower) }?.let { spec to it }
+        }
         when {
-            mode == Mode.TARGET_LOCKED && "guide" in text.lowercase() -> {
+            mode == Mode.TARGET_LOCKED && "guide" in lower -> {
                 spatial.reset(); throttle.reset()
                 mode = Mode.REACHING
                 speaker.say("Guiding. Move your hand into view.")
             }
+            answered != null -> {
+                pendingSpec = null
+                lockOn(answered.second, answered.first.name, answered.second.score.toDouble(), offline = true)
+            }
             else -> {
                 mode = Mode.INTERPRETING
-                val snapshot = latestCandidates
+                val snapshot = selectable
                 scope.launch {
                     val r = claude.interpret(text, snapshot)
-                    if (r.needsClarification || r.candidateId < 0) {
+                    pendingSpec = r.ambiguousSpec
+                    val chosen = snapshot.firstOrNull { it.id == r.candidateId }
+                    Log.i("REACH", "interpreted \"$text\" -> target=${r.target} id=${r.candidateId} clarify=${r.needsClarification} " +
+                        "claude=${r.fromClaude} snapshot=${snapshot.map { "#${it.id} ${it.label}" }} said=\"${r.question}\"")
+                    if (r.needsClarification || chosen == null) {
                         speaker.say(r.question.ifBlank { "I'm not sure which object you mean." })
                         mode = Mode.IDLE
                     } else {
-                        val chosen = snapshot.firstOrNull { it.id == r.candidateId }
-                        targetName = r.target
-                        targetBeverage = chosen?.beverage?.takeIf { it != "unknown" } ?: ""
-                        targetBox = chosen?.box
-                        targetId = chosen?.id ?: -1
-                        lastTargetSeenMs = SystemClock.uptimeMillis()
-                        mode = Mode.TARGET_LOCKED
-                        val conf = (r.confidence * 100).toInt()
-                        val src = if (r.fromClaude) "" else " Offline mode."
-                        speaker.say("Found the ${r.target}, $conf percent sure.$src Say guide me when ready.")
+                        lockOn(chosen, r.target, r.confidence, offline = !r.fromClaude)
                     }
                 }
             }
         }
     }
 
+    private fun lockOn(c: Candidate, name: String, confidence: Double, offline: Boolean) {
+        targetName = name.ifBlank { c.label }
+        lock.lock(c, SystemClock.uptimeMillis())
+        mode = Mode.TARGET_LOCKED
+        val src = if (offline) " Offline mode." else ""
+        speaker.say("Found the $targetName, ${(confidence * 100).toInt()} percent sure.$src Say guide me when ready.")
+    }
+
     fun close() { grounder.close(); handTracker.close() }
 
     fun reset() {
-        mode = Mode.IDLE; targetBeverage = ""; targetName = ""; targetBox = null; targetId = -1
+        mode = Mode.IDLE; targetName = ""; pendingSpec = null; lock.clear()
         spatial.reset(); throttle.reset()
         speaker.say("Reset.")
     }

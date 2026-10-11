@@ -32,17 +32,26 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
         color = Color.WHITE; textSize = 42f; setShadowLayer(4f, 0f, 0f, Color.BLACK)
     }
 
+    /** Analysis frames are portrait 3:4; PreviewView fills the screen and center-crops (FILL_CENTER). */
+    private val frameAspect = 3f / 4f
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val w = width.toFloat(); val h = height.toFloat()
+        val fw = h * frameAspect
+        val sx: Float; val sy: Float; val ox: Float; val oy: Float
+        if (fw >= w) { sx = fw; sy = h; ox = (w - fw) / 2f; oy = 0f }
+        else { sx = w; sy = w / frameAspect; ox = 0f; oy = (h - sy) / 2f }
 
         for (c in candidates) {
-            val p = if (c.id == targetId) targetPaint else boxPaint
-            val r = RectF(c.box.left * w, c.box.top * h, c.box.right * w, c.box.bottom * h)
-            canvas.drawRect(r, p)
-            canvas.drawText("${c.beverage} ${(c.score * 100).toInt()}%", r.left, r.top - 10f, textPaint)
+            val isTarget = c.id == targetId
+            val r = RectF(ox + c.box.left * sx, oy + c.box.top * sy, ox + c.box.right * sx, oy + c.box.bottom * sy)
+            canvas.drawRect(r, if (isTarget) targetPaint else boxPaint)
+            val bev = if (c.beverage != "unknown") " (${c.beverage})" else ""
+            val tag = "${if (isTarget) "TARGET " else ""}#${c.id} ${c.label}$bev ${(c.score * 100).toInt()}%"
+            canvas.drawText(tag, r.left, (r.top - 10f).coerceAtLeast(textPaint.textSize), textPaint)
         }
-        hand?.let { (x, y) -> canvas.drawCircle(x * w, y * h, 22f, handPaint) }
+        hand?.let { (x, y) -> canvas.drawCircle(ox + x * sx, oy + y * sy, 22f, handPaint) }
         canvas.drawText(statusText, 24f, h - 400f, textPaint) // above the button row
     }
 }
