@@ -1,0 +1,14 @@
+# never commit secrets or build junk
+.env
+*.keystore
+local.properties
+android/.gradle/
+android/app/build/
+android/build/
+*.apk
+backend/__pycache__/
+# model files are downloaded, not committed (large)
+android/app/src/main/assets/*.task
+android/app/src/main/assets/*.tflite
+.DS_Store
+.claude/
