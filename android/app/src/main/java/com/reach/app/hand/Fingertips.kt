@@ -24,7 +24,12 @@ data class HandResult(
     /** Guidance point. Index finger stays the default until other fingers are tested in use. */
     val index get() = tip(Finger.INDEX)
 
+    /** A ~9 cm palm within arm's reach (< ~0.8 m) of a chest camera (~52 deg portrait FOV on the A15)
+     *  measures >= ~0.08; anything under MIN_WEARER_SIZE is over ~1.5 m away: someone else's hand. */
+    val likelyWearer get() = present && handSize >= MIN_WEARER_SIZE
+
     companion object {
+        const val MIN_WEARER_SIZE = 0.06f
         val NONE = HandResult(present = false)
 
         fun fromLandmarks(lm: List<Lm>, score: Float): HandResult {

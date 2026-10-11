@@ -90,13 +90,14 @@ class ReachController(
             val t1 = System.nanoTime()
             val hand = handTracker.detect(frame, tsMs)
             handNs += System.nanoTime() - t1
-            val handPt = hand.index?.let { Pair(it.x, it.y) }
+            val handPt = if (hand.likelyWearer) hand.index?.let { Pair(it.x, it.y) } else null // never guide a bystander's hand
 
             if (startGuide.getAndSet(false)) { spatial.reset(); throttle.reset(); throttle.quiet(tsMs + INTRO_QUIET_MS) }
             // The lock only re-acquires an unambiguous same-class object near the old spot; still, say so.
             val relocks = lock.reacquisitions
             if (relocks != announcedRelocks) {
                 announcedRelocks = relocks
+                Log.i("REACH", "relock $targetName#${lock.id}")
                 speaker.say("Found the $targetName again.")
                 throttle.quiet(tsMs + RELOCK_QUIET_MS)
             }

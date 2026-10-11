@@ -82,6 +82,8 @@ Camera frame → EfficientDet candidates + HSV beverage color (own thread, ~3 Hz
   detector and the hand landmarker run on. x 0→1 left→right, y 0→1 top→bottom. Chest-mounted rear camera:
   image right = user's right, image up = up (phone upright).
 - **Error** = locked box centre − index fingertip (landmark 8). EMA-smoothed (α 0.5 per frame).
+  Hands smaller than 0.06 (wrist→middle knuckle, frame units) are ignored: at the A15's ~52° portrait
+  FOV that is a hand more than ~1.5 m away, i.e. not the wearer's.
 - **Thresholds (box-relative, frame units):** lined up horizontally when |ex| < max(0.03, 0.35·w),
   correct again when |ex| > that + max(0.03, 0.25·w); vertically |ey| < max(0.03, 0.30·h), re-enter at
   + max(0.04, 0.15·h). Horizontal is corrected first.
