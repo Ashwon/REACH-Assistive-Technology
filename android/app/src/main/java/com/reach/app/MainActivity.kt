@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private var renderedMode: Mode? = null
     private var pulseAnim: ObjectAnimator? = null
     private val main = Handler(Looper.getMainLooper())
+    private val debugFrames = if (BuildConfig.DEBUG) DebugFrames(this) else null
 
     /** Problems the camera card explains instead of showing a live view. */
     private enum class Blocker { CAMERA_PERMISSION, MODELS }
@@ -96,6 +97,9 @@ class MainActivity : AppCompatActivity() {
         binding.inputText.setOnEditorActionListener { _, actionId, event ->
             val enter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
             if (actionId == EditorInfo.IME_ACTION_SEARCH || enter) { findObject(); true } else false
+        }
+        binding.btnHand.setOnClickListener {
+            if (::controller.isInitialized) controller.beginHandSetup() else speaker.say(getString(R.string.spoken_no_camera))
         }
         binding.btnSpeech.setOnClickListener { setSpeech(!speaker.enabled, announce = true) }
         binding.btnSettings.setOnClickListener { showSettings() }
@@ -142,7 +146,8 @@ class MainActivity : AppCompatActivity() {
             binding.overlay.candidates = s.candidates
             binding.overlay.targetId = s.targetId
             binding.overlay.hand = s.hand
-            binding.overlay.guiding = s.mode == Mode.REACHING
+            binding.overlay.others = s.otherHands
+            binding.overlay.guiding = s.mode == Mode.GUIDING
             binding.overlay.postInvalidate()
         }
 
@@ -150,11 +155,13 @@ class MainActivity : AppCompatActivity() {
             // MediaPipe VIDEO mode wants monotonically increasing ms timestamps.
             val now = SystemClock.uptimeMillis()
             lastFrameAt = now
+            debugFrames?.onFrame(bmp, now)
             controller.onFrame(bmp, now)
         }
         pipelineStartedAt = SystemClock.uptimeMillis()
         camera.start()
-        speaker.say(getString(R.string.spoken_ready))
+        // Step one, before any search: establish which hand is the user's.
+        controller.beginHandSetup(getString(R.string.spoken_ready) + " ")
     }
 
     private fun modelsFailed(e: Exception) {
@@ -169,9 +176,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun onPrimary() {
         when (mode()) {
-            Mode.TARGET_LOCKED -> submit("guide me")
-            Mode.IDLE, Mode.DONE -> findObject()
-            else -> {}
+            Mode.TARGET_LOCKED, Mode.TRACKING_LOST -> submit("guide me")
+            Mode.GUIDING -> controller.confirmReached() // "I've got it"
+            Mode.IDLE, Mode.REACHED -> findObject()
+            Mode.SEARCHING -> {}
         }
     }
 
@@ -206,7 +214,7 @@ class MainActivity : AppCompatActivity() {
                     updateMicHelper()
                     if (text.isNullOrBlank()) speaker.say(getString(R.string.spoken_not_heard))
                     else {
-                        if ("guide" !in text.lowercase()) binding.inputText.setText(text)
+                        if (!isCommand(text)) binding.inputText.setText(text)
                         submit(text)
                     }
                 }
@@ -318,26 +326,24 @@ class MainActivity : AppCompatActivity() {
         TransitionManager.beginDelayedTransition(binding.actions)
         val p = binding.btnPrimary; val stop = binding.btnStop
         when (mode) {
-            Mode.IDLE, Mode.DONE -> {
+            Mode.IDLE, Mode.REACHED -> {
                 p.visibility = View.VISIBLE; p.isEnabled = true; p.text = getString(R.string.find_object)
                 p.icon = ContextCompat.getDrawable(this, R.drawable.ic_search); stop.visibility = View.GONE
             }
-            Mode.INTERPRETING -> {
+            Mode.SEARCHING -> {
                 p.visibility = View.VISIBLE; p.isEnabled = false; p.text = getString(R.string.searching); p.icon = null
                 stop.visibility = View.VISIBLE; stop.text = getString(R.string.cancel)
             }
-            Mode.TARGET_LOCKED -> {
+            Mode.TARGET_LOCKED, Mode.TRACKING_LOST -> { // TRACKING_LOST: Start Guidance is the deliberate retry
                 p.visibility = View.VISIBLE; p.isEnabled = true; p.text = getString(R.string.start_guidance)
                 p.icon = ContextCompat.getDrawable(this, R.drawable.ic_navigation)
                 stop.visibility = View.VISIBLE; stop.text = getString(R.string.cancel)
             }
-            Mode.REACHING -> {
-                p.visibility = View.GONE
+            Mode.GUIDING -> {
+                p.visibility = View.VISIBLE; p.isEnabled = true; p.text = getString(R.string.got_it); p.icon = null
                 stop.visibility = View.VISIBLE; stop.text = getString(R.string.stop_guidance)
             }
         }
-        // Full-width "Stop Guidance" has room for an icon; the narrow "Cancel" does not.
-        stop.icon = if (mode == Mode.REACHING) ContextCompat.getDrawable(this, R.drawable.ic_close) else null
     }
 
     private fun renderSpeechButton() {
@@ -407,6 +413,11 @@ class MainActivity : AppCompatActivity() {
             binding.inputText.setText(text)
             controller.onUtterance(text)
         }
+        // Debug builds only: record frames / replay recorded frames through the models (see DebugFrames).
+        intent.getIntExtra("capture", 0).takeIf { it > 0 }?.let { debugFrames?.startCapture(it) }
+        intent.getStringExtra("replay")?.let {
+            debugFrames?.replay(it, intent.getStringExtra("model") ?: "efficientdet_lite0.tflite", intent.getIntExtra("loops", 1))
+        }
     }
 
     override fun onDestroy() {
@@ -414,6 +425,7 @@ class MainActivity : AppCompatActivity() {
         main.removeCallbacks(renderLoop)
         if (::camera.isInitialized) camera.stop() // drain the analyzer before closing the native models
         if (::controller.isInitialized) controller.close()
+        debugFrames?.close()
         voice.destroy()
         speaker.shutdown()
     }

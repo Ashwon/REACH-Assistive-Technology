@@ -26,6 +26,16 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
+// Unit tests read the shared dataset spec (../dataset). The vision evaluator also takes optional inputs:
+//   ./gradlew testDebugUnitTest --tests '*VisionEvalRun*' -PevalDataset=<dir> -PevalPredictions=<predictions.jsonl>
+tasks.withType<Test>().configureEach {
+    systemProperty("reach.dataset", rootProject.file("../dataset").absolutePath)
+    systemProperty("reach.eval.dataset", (project.findProperty("evalDataset") as String?) ?: "")
+    systemProperty("reach.eval.predictions", (project.findProperty("evalPredictions") as String?) ?: "")
+    systemProperty("reach.eval.out", layout.buildDirectory.dir("reports/vision-eval").get().asFile.absolutePath)
+    outputs.upToDateWhen { false } // evaluation inputs live outside the project; always rerun
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -50,4 +60,5 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.google.code.gson:gson:2.10.1") // reads COCO annotations / predictions in the evaluator
 }

@@ -98,6 +98,8 @@ class ClaudeClient {
         val spec = SupportedClasses.resolve(utterance)
             ?: return Interpretation("UNKNOWN", "", -1, 0.0, true,
                 "I didn't catch which object you want. Try bottle, cup, phone, or chair.", false)
+        if (!spec.supported) return Interpretation("REACH_OBJECT", spec.name, -1, 0.0, true,
+            "I can't recognise ${spec.name}s yet. My detector has no class for them.", false)
         return when (val pick = pickTarget(spec, candidates)) {
             is TargetPick.One ->
                 Interpretation("REACH_OBJECT", spec.name, pick.c.id, pick.c.score.toDouble(), false, "", false)

@@ -149,6 +149,14 @@ class GuidanceThrottleTest {
         assertNull(th.filter(NONE, 20_000))
     }
 
+    @Test fun statusLinesRepeatLessOftenThanDirections() {
+        val th = GuidanceThrottle(minGapMs = 1100, repeatMs = 2600, statusRepeatMs = 6000)
+        assertEquals(HAND_COVERS_TARGET, th.filter(HAND_COVERS_TARGET, 10_000))
+        assertNull(th.filter(HAND_COVERS_TARGET, 13_000)); assertNull(th.filter(HAND_COVERS_TARGET, 15_900))
+        assertEquals(HAND_COVERS_TARGET, th.filter(HAND_COVERS_TARGET, 16_000))
+        assertTrue(LEFT.directional && CLOSER.directional && !LINED_UP_2D.directional && !HAND_LOST.directional)
+    }
+
     @Test fun stopAndReachedAreNeverDelayed() {
         val th = GuidanceThrottle()
         th.filter(LEFT, 10_000); th.quiet(15_000)

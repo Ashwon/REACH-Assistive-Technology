@@ -8,6 +8,7 @@
     <string name="searching">Searching…</string>
     <string name="cancel">Cancel</string>
     <string name="stop_guidance">Stop Guidance</string>
+    <string name="got_it">I’ve got it</string>
 
     <string name="input_hint">What should I find?</string>
     <string name="mic_desc">Speak your request</string>
@@ -18,6 +19,7 @@
     <string name="speech_on_desc">Spoken guidance is on. Double-tap to turn it off.</string>
     <string name="speech_off_desc">Spoken guidance is off. Double-tap to turn it on.</string>
     <string name="settings_desc">Voice and accessibility settings</string>
+    <string name="set_hand_desc">Set my hand. Raise the hand you will reach with, then close it into a fist.</string>
 
     <string name="guidance_label">Guidance</string>
     <string name="direction_only">Direction only · no distance</string>
@@ -40,7 +42,7 @@
     <string name="depth_check">Depth sensor check (experimental)</string>
     <string name="depth_check_note">Opens a separate ARCore test screen. Guidance pauses while it is open.</string>
 
-    <string name="spoken_ready">REACH ready. Tap Find an Object, or type what you need.</string>
+    <string name="spoken_ready">REACH ready.</string>
     <string name="spoken_speech_on">Spoken guidance on.</string>
     <string name="spoken_speech_off">Spoken guidance off.</string>
     <string name="spoken_test">This is how guidance will sound. Move left.</string>

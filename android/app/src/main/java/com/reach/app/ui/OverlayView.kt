@@ -22,7 +22,9 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
     @Volatile var candidates: List<Candidate> = emptyList()
     @Volatile var targetId: Int = -1
+    /** The selected (wearer's) hand; [others] are hands in view that are never guided, drawn dimmed. */
     @Volatile var hand: HandResult = HandResult.NONE
+    @Volatile var others: List<HandResult> = emptyList()
     /** While guiding: draw the line the engine measures, fingertip -> target centre. */
     @Volatile var guiding = false
 
@@ -59,10 +61,11 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
             val isTarget = c.id == targetId
             if (isTarget) target = c
             r.set(ox + c.box.left * sx, oy + c.box.top * sy, ox + c.box.right * sx, oy + c.box.bottom * sy)
+            boxPaint.alpha = if (c.confirmed) 0xCC else 0x55 // seen in one frame only: not offered as a target
             canvas.drawRoundRect(r, corner, corner, if (isTarget) targetPaint else boxPaint)
             // Label pill above the box (inside it when the box touches the top). No colour guess: it is unverified.
             val name = c.label.replaceFirstChar { it.uppercase() }
-            val tag = if (isTarget) "Target · $name" else "$name ${(c.score * 100).toInt()}%"
+            val tag = if (isTarget) "Target · $name" else "$name ${(c.score * 100).toInt()}%${if (c.sure) "" else "?"}"
             val tp = if (isTarget) targetLabelText else labelText
             val tw = tp.measureText(tag); val th = tp.textSize
             val top = if (r.top - th - 2 * pad >= oy) r.top - th - 2 * pad else r.top + pad
@@ -71,12 +74,14 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
             canvas.drawText(tag, bg.left + pad, bg.bottom - pad - tp.descent() / 2, tp)
         }
 
+        tipPaint.alpha = 110 // hands that are not the selected one: shown, never guided
+        for (o in others) for (tip in o.tips) canvas.drawCircle(ox + tip.x * sx, oy + tip.y * sy, dp(5f), tipPaint)
         val h = hand
         if (!h.present) return
-        tipPaint.alpha = if (h.likelyWearer) 255 else 110 // a far-away hand is shown dimmed: it is not guided
+        tipPaint.alpha = 255
         val index = h.index
         val t = target
-        if (guiding && h.likelyWearer && index != null && t != null) {
+        if (guiding && index != null && t != null) {
             canvas.drawLine(ox + index.x * sx, oy + index.y * sy, ox + t.box.centerX() * sx, oy + t.box.centerY() * sy, linePaint)
         }
         for (tip in h.tips) {

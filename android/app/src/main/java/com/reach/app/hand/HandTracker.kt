@@ -11,6 +11,10 @@ import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
  * V1 — MediaPipe Hand Landmarker in VIDEO mode (synchronous per-frame,
  * simpler to reason about than LIVE_STREAM callbacks under a deadline).
  *
+ * Reports every hand it finds, in MediaPipe's order, which is NOT an identity: [HandSelector] decides
+ * which one is the wearer's. With numHands = 1 MediaPipe keeps tracking whichever hand it found first and
+ * stops looking for others, so a bystander's hand could hide the wearer's entirely.
+ *
  * Requires app/src/main/assets/hand_landmarker.task (see scripts/download_models.sh).
  */
 class HandTracker(context: Context) {
@@ -24,21 +28,24 @@ class HandTracker(context: Context) {
                     .build()
             )
             .setRunningMode(RunningMode.VIDEO)
-            .setNumHands(1)
+            .setNumHands(MAX_HANDS)
             .setMinHandDetectionConfidence(0.5f)
             .setMinTrackingConfidence(0.5f)
             .build()
     )
 
-    fun detect(frame: Bitmap, timestampMs: Long): HandResult {
+    fun detectAll(frame: Bitmap, timestampMs: Long): List<HandResult> {
         val result = landmarker.detectForVideo(BitmapImageBuilder(frame).build(), timestampMs)
-        val lm = result.landmarks().firstOrNull() ?: return HandResult.NONE
         // Landmarks are normalized to the bitmap we passed: the upright frame the detector also sees.
-        return HandResult.fromLandmarks(
-            lm.map { Lm(it.x(), it.y(), it.z(), it.visibility().orElse(null), it.presence().orElse(null)) },
-            score = result.handednesses().firstOrNull()?.firstOrNull()?.score() ?: 0f
-        )
+        return result.landmarks().mapIndexed { i, lm ->
+            HandResult.fromLandmarks(
+                lm.map { Lm(it.x(), it.y(), it.z(), it.visibility().orElse(null), it.presence().orElse(null)) },
+                score = result.handednesses().getOrNull(i)?.firstOrNull()?.score() ?: 0f
+            )
+        }.filter { it.present }
     }
 
     fun close() = landmarker.close()
+
+    companion object { const val MAX_HANDS = 2 }
 }

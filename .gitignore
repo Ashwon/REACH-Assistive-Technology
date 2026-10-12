@@ -12,3 +12,9 @@ android/app/src/main/assets/*.task
 android/app/src/main/assets/*.tflite
 .DS_Store
 .claude/
+# candidate models and large recorded datasets stay local (dataset/seed is small and kept)
+models/
+dataset/*/predictions/
+dataset/*/images/
+!dataset/seed/images/
+__pycache__/

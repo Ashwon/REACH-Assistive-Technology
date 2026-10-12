@@ -16,8 +16,20 @@ data class Box(val left: Float, val top: Float, val right: Float, val bottom: Fl
     fun isValid() = listOf(left, top, right, bottom).all { it.isFinite() && it in 0f..1f } &&
         right - left >= MIN_SIDE && bottom - top >= MIN_SIDE
 
+    /** Not a near-whole-frame box: replaying dim frames on the A15, every junk box (laptop, tv, clock, airplane,
+     *  surfboard...) covered >= 0.73 of the frame. Nothing that fills the view is a reachable target either. */
+    fun isPlausible() = (right - left) * (bottom - top) <= MAX_AREA
+
+    fun iou(o: Box): Float {
+        val iw = minOf(right, o.right) - maxOf(left, o.left); val ih = minOf(bottom, o.bottom) - maxOf(top, o.top)
+        if (iw <= 0f || ih <= 0f) return 0f
+        val inter = iw * ih
+        return inter / ((right - left) * (bottom - top) + (o.right - o.left) * (o.bottom - o.top) - inter)
+    }
+
     companion object {
         const val MIN_SIDE = 0.02f
+        const val MAX_AREA = 0.6f
         fun clamped(l: Float, t: Float, r: Float, b: Float) =
             Box(l.coerceIn(0f, 1f), t.coerceIn(0f, 1f), r.coerceIn(0f, 1f), b.coerceIn(0f, 1f))
     }
@@ -25,6 +37,17 @@ data class Box(val left: Float, val top: Float, val right: Float, val bottom: Fl
 
 /** One raw detector hit, before it gets a stable id. */
 data class Det(val label: String, val score: Float, val box: Box)
+
+/** Detector score a new object needs. Not lowered: on recorded A15 frames the junk sits at 0.10..0.31. */
+const val MIN_SCORE = 0.35f
+
+/** Why a raw detection is not tracked ("low", "invalid", "wholeframe"), or null when it is. */
+fun rejectReason(score: Float, box: Box, minScore: Float = MIN_SCORE): String? = when {
+    score < minScore -> "low"
+    !box.isValid() -> "invalid"
+    !box.isPlausible() -> "wholeframe"
+    else -> null
+}
 
 /**
  * What the app is willing to guide the hand to. EfficientDet-Lite0 is a COCO model: it can only
@@ -50,7 +73,7 @@ object SupportedClasses {
         "chair" to setOf("chair"), "seat" to setOf("chair"),
         "cup" to setOf("cup"), "mug" to setOf("cup"),
         "glass" to setOf("wine glass", "cup"), "wine glass" to setOf("wine glass"),
-        "bottle" to setOf("bottle"),
+        "bottle" to setOf("bottle"), "water bottle" to setOf("bottle"),
         "bowl" to setOf("bowl"),
         "phone" to setOf("cell phone"), "cell phone" to setOf("cell phone"), "mobile" to setOf("cell phone"),
         "remote" to setOf("remote"), "controller" to setOf("remote"),
@@ -64,22 +87,29 @@ object SupportedClasses {
         "teddy bear" to setOf("teddy bear"), "teddy" to setOf("teddy bear")
     )
 
+    /** Categories users ask for that the detector has no class for (dataset/categories.json "model_support": "none").
+     *  Listed so "laptop bag" is answered honestly instead of matching its shorter word "laptop". */
+    val UNSUPPORTED: Map<String, String> = mapOf("laptop bag" to "laptop bag", "laptop case" to "laptop bag",
+        "computer bag" to "laptop bag", "laptop sleeve" to "laptop bag")
+
     /** Every label some spoken word can resolve to (used by tests to catch typos). */
     val SPEAKABLE_LABELS: Set<String> get() = ALIASES.values.flatten().toSet() + DRINK_CONTAINERS
 
-    /** First supported object named in the utterance (longest phrase wins), or null. */
+    /** First object named in the utterance (longest phrase wins), or null. An unsupported one has no labels. */
     fun resolve(utterance: String): TargetSpec? {
         val words = utterance.lowercase().split(Regex("[^a-z]+")).filter { it.isNotEmpty() }
         val padded = " ${words.joinToString(" ")} "
         BEVERAGES.entries.firstOrNull { " ${it.key} " in padded }?.let {
             return TargetSpec(it.value, DRINK_CONTAINERS, it.value)
         }
-        return ALIASES.keys.sortedByDescending { it.length }.firstOrNull { " $it " in padded }
-            ?.let { TargetSpec(it, ALIASES.getValue(it)) }
+        return (ALIASES.keys + UNSUPPORTED.keys).sortedByDescending { it.length }.firstOrNull { " $it " in padded }
+            ?.let { UNSUPPORTED[it]?.let { cat -> TargetSpec(cat, emptySet()) } ?: TargetSpec(it, ALIASES.getValue(it)) }
     }
 }
 
+/** labels empty = a category the detector cannot recognise (see SupportedClasses.UNSUPPORTED). */
 data class TargetSpec(val name: String, val labels: Set<String>, val beverage: String? = null) {
+    val supported get() = labels.isNotEmpty()
     fun matches(c: Candidate) = c.label in labels && (beverage == null || c.beverage == beverage)
 }
 
@@ -114,12 +144,28 @@ fun clarifyQuestion(spec: TargetSpec, count: Int) =
 /**
  * Gives detections ids that survive across frames: same label, nearest center, within maxJump.
  * Tracks that are not seen for ttlMs are forgotten. Ids are never reused.
+ * Also keeps the evidence for each track: a smoothed score, whether it has been seen in [confirmHits]
+ * detector runs (one frame is never enough to accept an object), and whether a different class was
+ * reported for the same spot (IoU >= CONFLICT_IOU) within ttlMs, i.e. the model cannot decide what it is.
  */
-class CandidateTracker(private val ttlMs: Long = 1500, private val maxJump: Float = 0.2f) {
-    private class Track(val id: Int, val label: String, var box: Box, var seenMs: Long)
+class CandidateTracker(private val ttlMs: Long = 1500, private val maxJump: Float = 0.2f, private val confirmHits: Int = 3) {
+    private class Track(val id: Int, val label: String, var box: Box, var seenMs: Long, var score: Float, var hits: Int = 1) {
+        var rival: String? = null; var rivalMs = 0L
+    }
+
+    data class Evidence(val score: Float, val confirmed: Boolean, val conflict: String?)
 
     private val tracks = ArrayList<Track>()
     private var nextId = 0
+    private var nowMs = 0L
+
+    /** The conflict is remembered for ttlMs: box jitter must not make a disputed spot look settled for a frame. */
+    fun evidence(id: Int): Evidence? {
+        val t = tracks.firstOrNull { it.id == id } ?: return null
+        return Evidence(t.score, t.hits >= confirmHits, t.rival?.takeIf { nowMs - t.rivalMs <= ttlMs })
+    }
+
+    private companion object { const val CONFLICT_IOU = 0.5f; const val SCORE_ALPHA = 0.5f }
 
     fun assign(dets: List<Det>, nowMs: Long): IntArray {
         tracks.removeAll { nowMs - it.seenMs > ttlMs }
@@ -133,11 +179,15 @@ class CandidateTracker(private val ttlMs: Long = 1500, private val maxJump: Floa
         for ((d, i, t) in pairs.sortedBy { it.first }) {
             if (d > maxJump || ids[i] >= 0 || t in usedTracks) continue
             ids[i] = t.id; usedTracks.add(t); t.box = dets[i].box; t.seenMs = nowMs
+            t.hits++; t.score += SCORE_ALPHA * (dets[i].score - t.score)
         }
         for (i in dets.indices) if (ids[i] < 0) {
-            val t = Track(nextId++, dets[i].label, dets[i].box, nowMs)
+            val t = Track(nextId++, dets[i].label, dets[i].box, nowMs, dets[i].score)
             tracks.add(t); ids[i] = t.id
         }
+        this.nowMs = nowMs
+        for (t in tracks) tracks.filter { it.label != t.label && it.box.iou(t.box) >= CONFLICT_IOU }.maxByOrNull { it.score }
+            ?.let { t.rival = it.label; t.rivalMs = nowMs }
         return ids
     }
 }
@@ -182,7 +232,8 @@ class TargetLock(private val holdMs: Long = 1500, private val reacquireDist: Flo
         box = null; status = TrackStatus.LOST
         val same = cands.filter { it.label == label }
         val last = lastBox
-        if (same.size == 1 && last != null && same[0].box.distTo(last) < reacquireDist) {
+        // Only a settled detection: never one seen in a single frame, nor a spot the model also calls something else.
+        if (same.size == 1 && same[0].confirmed && same[0].conflict == null && last != null && same[0].box.distTo(last) < reacquireDist) {
             lock(same[0], nowMs); reacquisitions++; return same[0]
         }
         return null

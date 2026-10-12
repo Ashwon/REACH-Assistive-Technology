@@ -36,6 +36,7 @@ class Speaker(context: Context) {
     }
 
     fun say(text: String, interrupt: Boolean = true) {
+        Log.i("REACH", "say \"$text\"") // every phrase, so a device log shows exactly what was spoken and when
         onSpoken?.invoke(text)
         if (!enabled) return
         if (!ready) { pending = text; return }

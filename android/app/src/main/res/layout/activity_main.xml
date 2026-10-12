@@ -43,6 +43,16 @@
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHand"
+            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="4dp"
+            android:contentDescription="@string/set_hand_desc"
+            app:icon="@drawable/ic_hand"
+            app:iconSize="26dp" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSpeech"
             style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
             android:layout_width="56dp"

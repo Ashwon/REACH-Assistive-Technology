@@ -19,9 +19,21 @@ data class Candidate(
     val label: String,        // COCO class from the model's labels.txt, e.g. "bottle"
     val beverage: String,     // color-derived guess for drink containers: coke/pepsi/sprite/monster/unknown
     val box: Box,             // normalized 0..1
-    val score: Float,
-    val crop: Bitmap?         // small crop for Claude's thumbnail
-)
+    val score: Float,         // detector score, smoothed over this object's sightings; not a calibrated probability
+    val crop: Bitmap?,        // small crop for Claude's thumbnail
+    val confirmed: Boolean = true,  // seen in enough detector runs to be offered at all (CandidateTracker)
+    val conflict: String? = null,   // another class the model reported for the same spot, e.g. "handbag" for a bottle
+    val lowLight: Boolean = false   // the frame was too dark for the detector to be trusted
+) {
+    /** Enough evidence to name it without hedging. Even then it is a detector's guess, never "verified". */
+    val sure get() = confirmed && conflict == null && !lowLight && score >= STRONG_SCORE
+
+    companion object {
+        const val STRONG_SCORE = 0.6f
+        /** Mean frame luma (0..255). Replayed underexposed A15 frames (mean 9..42) produced only junk boxes. */
+        const val LOW_LIGHT_LUMA = 45f
+    }
+}
 
 interface ObjectGrounder {
     /** Returns current candidates in the frame. Must be fast enough for ~2-5 Hz. */
@@ -39,7 +51,7 @@ interface ObjectGrounder {
 class LocalDetectorGrounder(
     context: Context,
     private val allowed: Set<String> = SupportedClasses.DETECTED,
-    private val minScore: Float = 0.35f
+    private val minScore: Float = MIN_SCORE
 ) : ObjectGrounder {
 
     private val tracker = CandidateTracker()
@@ -69,26 +81,41 @@ class LocalDetectorGrounder(
             val box = Box.clamped(
                 b.left / frame.width, b.top / frame.height, b.right / frame.width, b.bottom / frame.height
             )
-            when {
-                name !in allowed -> rejected.add("$name:${"%.2f".format(cat.score())}")
-                cat.score() < minScore -> near.add("$name:${"%.2f".format(cat.score())}")
-                !box.isValid() -> rejected.add("$name:invalid")
-                else -> dets.add(Det(name, cat.score(), box))
+            val tag = "$name:${"%.2f".format(cat.score())}"
+            when (val why = rejectReason(cat.score(), box, minScore)) {
+                "low" -> (if (name in allowed) near else rejected).add(tag)
+                // Unsupported classes are tracked too, only so a spot that is "bed" one frame and "person" the next shows as a conflict.
+                null -> dets.add(Det(name, cat.score(), box))
+                else -> rejected.add("$tag:$why")
             }
         }
         val ids = tracker.assign(dets, timestampMs)
-        if (timestampMs - lastRawLog >= 1000) {
-            lastRawLog = timestampMs
-            Log.i("REACH", "kept=" + dets.mapIndexed { i, d ->
-                "#${ids[i]} ${d.label}:${"%.2f".format(d.score)}"
-            } + " near=$near rejected=$rejected")
-        }
-        return dets.mapIndexed { i, d ->
+        val luma = meanLuma(frame)
+        val cands = dets.indices.filter { dets[it].label in allowed }.map { i ->
+            val d = dets[i]; val ev = tracker.evidence(ids[i])!!
             val crop = safeCrop(frame, d.box)
             val beverage = if (d.label in SupportedClasses.DRINK_CONTAINERS)
                 crop?.let { ColorClassifier.classify(it) } ?: "unknown" else "unknown"
-            Candidate(ids[i], d.label, beverage, d.box, d.score, crop)
+            Candidate(ids[i], d.label, beverage, d.box, ev.score, crop, ev.confirmed, ev.conflict, luma < Candidate.LOW_LIGHT_LUMA)
         }
+        if (timestampMs - lastRawLog >= 1000) {
+            lastRawLog = timestampMs
+            Log.i("REACH", "kept=" + cands.map { c ->
+                "#${c.id} ${c.label}:${"%.2f".format(c.score)}${if (c.confirmed) "" else "(new)"}${c.conflict?.let { "(or $it)" } ?: ""}"
+            } + " other=" + dets.filter { it.label !in allowed }.map { "${it.label}:${"%.2f".format(it.score)}" } +
+                " near=$near rejected=$rejected luma=${luma.toInt()}")
+        }
+        return cands
+    }
+
+    /** Mean luma (0..255) of the frame, sampled every 8th pixel. */
+    private fun meanLuma(frame: Bitmap): Float {
+        var sum = 0f; var n = 0
+        for (y in 0 until frame.height step 8) for (x in 0 until frame.width step 8) {
+            val p = frame.getPixel(x, y)
+            sum += 0.299f * Color.red(p) + 0.587f * Color.green(p) + 0.114f * Color.blue(p); n++
+        }
+        return if (n == 0) 0f else sum / n
     }
 
     private fun safeCrop(frame: Bitmap, box: Box): Bitmap? = try {

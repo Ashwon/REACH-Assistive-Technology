@@ -8,15 +8,11 @@ import com.reach.app.grounding.Candidate
 import com.reach.app.grounding.DetectorGate
 import com.reach.app.grounding.ObjectGrounder
 import com.reach.app.grounding.RecentCandidates
-import com.reach.app.grounding.TargetLock
 import com.reach.app.grounding.TargetPick
 import com.reach.app.grounding.TargetSpec
-import com.reach.app.grounding.TrackStatus
 import com.reach.app.grounding.pickByPosition
 import com.reach.app.grounding.pickTarget
-import com.reach.app.hand.HandResult
 import com.reach.app.hand.HandTracker
-import com.reach.app.spatial.*
 import com.reach.app.speech.Speaker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -29,60 +25,44 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * State machine:
- *   IDLE -> (utterance) -> INTERPRETING -> TARGET_LOCKED -> REACHING -> DONE
- * Claude is called exactly once per utterance (INTERPRETING). The per-frame
- * loop (onFrame) is 100% local: grounder + hand tracker + SpatialEngine.
- * The detector (~150 ms) runs on its own thread so it never stalls fingertip tracking.
+ * Threads and I/O around [ReachCore], which owns every state transition and every guidance line.
+ * Claude is called exactly once per search utterance. The per-frame loop (onFrame) is 100% local:
+ * hand tracker + detector + core. The detector (~150 ms) runs on its own thread so it never stalls
+ * fingertip tracking.
  */
 private const val GROUND_INTERVAL_MS = 300L
 /** A detection whose frame is older than this when it finishes is dropped, never applied. */
 private const val STALE_MS = 600L
-/** Let the spoken "guiding" / "found it again" announcements finish before direction cues resume. */
-private const val INTRO_QUIET_MS = 3000L
-private const val RELOCK_QUIET_MS = 1500L
 
-enum class Mode { IDLE, INTERPRETING, TARGET_LOCKED, REACHING, DONE }
+/** "got it" and friends: the user telling us they have the object. */
+private val GOT_IT = listOf("got it", "have it", "holding it", "touching it", "found it", "reached")
+/** "set my hand": (re)start choosing the user's hand. */
+private val HAND_SETUP = listOf("my hand", "set hand", "select hand", "hand setup")
 
-/** The state the screen shows, built once per camera frame from the same values guidance runs on. */
-data class ReachSnapshot(
-    val mode: Mode,
-    val target: String,          // what the user asked for ("bottle", "coke"); "" when nothing is locked
-    val track: TrackStatus,      // of the locked target
-    val targetId: Int,           // -1 when nothing is locked
-    val candidates: List<Candidate>,
-    val hand: HandResult,
-    val cue: Guidance            // engine output while guiding, NONE otherwise
-)
+/** Spoken/typed commands that are not a search request (kept out of the search field). */
+fun isCommand(text: String) = text.lowercase().let { t -> "guide" in t || (GOT_IT + HAND_SETUP).any { it in t } }
 
 class ReachController(
     private val grounder: ObjectGrounder,
     private val handTracker: HandTracker,
     private val claude: ClaudeClient,
-    private val speaker: Speaker,
+    speaker: Speaker,
     private val scope: CoroutineScope,
     private val onUi: (ReachSnapshot) -> Unit
 ) {
-    @Volatile var mode = Mode.IDLE; private set
-    private val spatial = SpatialEngine()
-    private val throttle = GuidanceThrottle()
+    private val core = ReachCore({ speaker.say(it) }) { Log.i("REACH", it) }
+    val mode get() = core.mode
     private val busy = AtomicBoolean(false)
-    private val lock = TargetLock()
 
-    @Volatile private var targetName: String = ""
     /** Set when an offline request matched several objects; the next "left/right" answers it. */
     @Volatile private var pendingSpec: TargetSpec? = null
     @Volatile private var latestCandidates: List<Candidate> = emptyList()
     private val recent = RecentCandidates()
-    /** latestCandidates plus objects that blinked out within the last second; what requests resolve against. */
+    /** Confirmed detections plus those that blinked out within the last second; what requests resolve against. */
     @Volatile private var selectable: List<Candidate> = emptyList()
     private val detectExec = Executors.newSingleThreadExecutor()
     private val gate = DetectorGate(GROUND_INTERVAL_MS, STALE_MS)
     @Volatile private var detFrameMs = -1L // frame time of the detections currently applied
-    /** Set by "guide me"; the camera thread then resets the guidance state it owns. */
-    private val startGuide = AtomicBoolean(false)
-    @Volatile private var lastCue = Guidance.NONE
-    private var announcedRelocks = 0 // camera thread
     private var interpretJob: Job? = null // main thread
 
     // Debug log accumulators: camera thread, except the det* ones written by the detector thread.
@@ -96,64 +76,42 @@ class ReachController(
         if (!busy.compareAndSet(false, true)) return
         try {
             if (gate.tryStart(tsMs)) {
+                val token = core.session // the result is applied only if no transition happened meanwhile
                 // Bitmaps are fresh per frame and never recycled, so handing this one over is safe.
-                try { detectExec.execute { runDetector(frame, tsMs) } }
+                try { detectExec.execute { runDetector(frame, tsMs, token) } }
                 catch (e: RejectedExecutionException) { return } // closing
             }
 
             val t1 = System.nanoTime()
-            val hand = handTracker.detect(frame, tsMs)
+            val hands = handTracker.detectAll(frame, tsMs)
             handNs += System.nanoTime() - t1
-            val handPt = if (hand.likelyWearer) hand.index?.let { Pair(it.x, it.y) } else null // never guide a bystander's hand
-
-            if (startGuide.getAndSet(false)) { spatial.reset(); throttle.reset(); throttle.quiet(tsMs + INTRO_QUIET_MS) }
-            // The lock only re-acquires an unambiguous same-class object near the old spot; still, say so.
-            val relocks = lock.reacquisitions
-            if (relocks != announcedRelocks) {
-                announcedRelocks = relocks
-                Log.i("REACH", "relock $targetName#${lock.id}")
-                speaker.say("Found the $targetName again.")
-                throttle.quiet(tsMs + RELOCK_QUIET_MS)
-            }
-
-            if (mode == Mode.REACHING) {
-                // depth = null: ARCore depth cannot be registered to these CameraX frames (README "Guidance geometry"),
-                // so guidance is 2D only and the engine will never say "reached".
-                val cue = spatial.update(SpatialInput(lock.boxAt(tsMs), handPt?.first, handPt?.second, depth = null, timestampMs = tsMs))
-                lastCue = cue
-                throttle.filter(cue, tsMs)?.let { spoken ->
-                    Log.i("REACH", "cue=$spoken target=${lock.box?.let { "%.2f,%.2f".format(it.centerX(), it.centerY()) }} " +
-                        "tip=${handPt?.let { "%.2f,%.2f".format(it.first, it.second) }} err=%+.3f,%+.3f".format(spatial.ex, spatial.ey))
-                    speaker.sayGuidance(spoken, targetName)
-                    if (spoken == Guidance.REACHED) mode = Mode.DONE
-                }
-            }
+            val s = core.onFrame(hands, latestCandidates, tsMs)
 
             logFrames++
             if (tsMs - logAt >= 1000) {
                 val runs = detRuns.getAndSet(0); val ns = detNs.getAndSet(0)
                 Log.i("REACH", "fps=$logFrames handMs=${handNs / logFrames / 1_000_000} det/s=$runs " +
                     "groundMs=${if (runs > 0) ns / runs / 1_000_000 else 0} detAgeMs=${if (detFrameMs < 0) -1 else tsMs - detFrameMs} " +
-                    "stale=${gate.staleDropped} mode=$mode target=$targetName#${lock.id} ${lock.status} " +
-                    (if (mode == Mode.REACHING) "guide=2D cue=$lastCue err=%+.3f,%+.3f ".format(spatial.ex, spatial.ey) else "") +
-                    "hand=${if (hand.present) "score=%.2f size=%.2f".format(hand.score, hand.handSize) else null} " +
-                    "cands=" + latestCandidates.joinToString { "#${it.id} ${it.label}/${it.beverage}/${"%.2f".format(it.score)}" })
-                if (hand.present) Log.i("REACH", "tips " + hand.tips.joinToString(" ") {
+                    "stale=${gate.staleDropped} mode=${s.mode} target=${s.target}#${s.targetId} ${s.track} " +
+                    (if (s.mode == Mode.GUIDING) "guide=2D cue=${s.cue} err=%+.3f,%+.3f ".format(core.ex, core.ey) else "") +
+                    "hands=${hands.size} sel=${s.handStatus}" +
+                    (if (s.hand.present) " score=%.2f size=%.2f palm=%.2f,%.2f".format(s.hand.score, s.hand.handSize, s.hand.palmX, s.hand.palmY) else "") +
+                    s.otherHands.joinToString("") { " other=size%.2f@%.2f,%.2f".format(it.handSize, it.palmX, it.palmY) } +
+                    " cands=" + s.candidates.joinToString { "#${it.id} ${it.label}/${it.beverage}/${"%.2f".format(it.score)}${if (it.sure) "" else "?"}" })
+                if (s.hand.present) Log.i("REACH", "tips " + s.hand.tips.joinToString(" ") {
                     "${it.finger}=%.3f,%.3f,z%.3f${if (it.inFrame) "" else "(off)"}".format(it.x, it.y, it.z) +
                         (it.visibility?.let { v -> " vis%.2f".format(v) } ?: "") + (it.presence?.let { p -> " pres%.2f".format(p) } ?: "")
                 })
                 logAt = tsMs; logFrames = 0; handNs = 0
             }
-            val m = mode
-            onUi(ReachSnapshot(m, targetName, lock.status, if (lock.active) lock.id else -1, latestCandidates, hand,
-                if (m == Mode.REACHING || m == Mode.DONE) lastCue else Guidance.NONE))
+            onUi(s)
         } finally {
             busy.set(false)
         }
     }
 
     /** Detector thread. Results are applied only if the gate says they are still fresh. */
-    private fun runDetector(frame: Bitmap, frameMs: Long) {
+    private fun runDetector(frame: Bitmap, frameMs: Long, token: Int) {
         val t0 = System.nanoTime()
         var cands: List<Candidate>? = null
         try { cands = grounder.ground(frame, frameMs) }
@@ -164,9 +122,10 @@ class ReachController(
         }
         if (cands == null) return
         latestCandidates = cands
-        selectable = recent.update(cands, frameMs)
+        // A detection seen in a single frame is never offered as a target (see CandidateTracker).
+        selectable = recent.update(cands.filter { it.confirmed }, frameMs)
         detFrameMs = frameMs
-        if (mode == Mode.REACHING || mode == Mode.TARGET_LOCKED) lock.update(cands, frameMs)
+        core.onDetections(cands, frameMs, token)
     }
 
     /** Called once per recognized utterance. */
@@ -178,44 +137,35 @@ class ReachController(
                 ?.let { pickByPosition(it.options, lower) }?.let { spec to it }
         }
         when {
-            (mode == Mode.TARGET_LOCKED || mode == Mode.REACHING || mode == Mode.DONE) && "guide" in lower -> { // also restarts guidance
-                startGuide.set(true)
-                mode = Mode.REACHING
-                speaker.say("Guiding by direction only, not distance. Hold your hand out.")
-            }
+            HAND_SETUP.any { it in lower } -> beginHandSetup()
+            GOT_IT.any { it in lower } && core.confirmReached() -> {}
+            "guide" in lower && core.startGuidance(SystemClock.uptimeMillis()) -> {} // also restarts / retries guidance
             answered != null -> {
                 pendingSpec = null
-                lockOn(answered.second, answered.first.name, answered.second.score.toDouble(), offline = true)
+                core.lockOn(answered.second, answered.first.name, answered.second.score.toDouble(), offline = true, SystemClock.uptimeMillis())
             }
             else -> {
-                lock.clear() // a new request never leaves guidance pointed at the previous object
-                mode = Mode.INTERPRETING
+                val token = core.beginSearch()
                 val snapshot = selectable
                 interpretJob?.cancel()
                 interpretJob = scope.launch {
                     val r = claude.interpret(text, snapshot)
-                    pendingSpec = r.ambiguousSpec
-                    val chosen = snapshot.firstOrNull { it.id == r.candidateId }
+                    val chosen = if (r.needsClarification) null else snapshot.firstOrNull { it.id == r.candidateId }
                     Log.i("REACH", "interpreted \"$text\" -> target=${r.target} id=${r.candidateId} clarify=${r.needsClarification} " +
                         "claude=${r.fromClaude} snapshot=${snapshot.map { "#${it.id} ${it.label}" }} said=\"${r.question}\"")
-                    if (r.needsClarification || chosen == null) {
-                        speaker.say(r.question.ifBlank { "I'm not sure which object you mean." })
-                        mode = Mode.IDLE
-                    } else {
-                        lockOn(chosen, r.target, r.confidence, offline = !r.fromClaude)
-                    }
+                    if (core.onSearchResult(token, chosen, r.target, r.confidence, !r.fromClaude, r.question, SystemClock.uptimeMillis()))
+                        pendingSpec = r.ambiguousSpec
+                    else Log.i("REACH", "dropped stale interpretation of \"$text\"")
                 }
             }
         }
     }
 
-    private fun lockOn(c: Candidate, name: String, confidence: Double, offline: Boolean) {
-        targetName = name.ifBlank { c.label }
-        lock.lock(c, SystemClock.uptimeMillis())
-        mode = Mode.TARGET_LOCKED
-        val src = if (offline) " Offline mode." else ""
-        speaker.say("Found the $targetName, ${(confidence * 100).toInt()} percent sure.$src Say guide me when ready.")
-    }
+    /** The "I've got it" button. */
+    fun confirmReached() = core.confirmReached()
+
+    /** The "Set my hand" button, and the first step after the camera starts. */
+    fun beginHandSetup(intro: String = "") = core.beginHandSetup(SystemClock.uptimeMillis(), intro)
 
     fun close() {
         detectExec.shutdown()
@@ -226,7 +176,7 @@ class ReachController(
     /** Main thread. Also cancels a request still waiting on the backend, so it cannot lock on afterwards. */
     fun reset() {
         interpretJob?.cancel()
-        mode = Mode.IDLE; targetName = ""; pendingSpec = null; lock.clear() // guidance state resets on the next "guide me"
-        speaker.say("Reset.")
+        pendingSpec = null
+        core.cancel()
     }
 }

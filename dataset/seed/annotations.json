@@ -1,0 +1,2057 @@
+{
+ "info": {
+  "description": "REACH seed set: pipeline smoke test, NOT an accuracy benchmark (see README.md)"
+ },
+ "images": [
+  {
+   "id": 1,
+   "file_name": "room1-person-laptop_f_00000000.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 2,
+   "file_name": "room1-person-laptop_f_00000106.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 3,
+   "file_name": "room1-person-laptop_f_00000169.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 4,
+   "file_name": "room1-person-laptop_f_00000264.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 5,
+   "file_name": "room1-person-laptop_f_00000363.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 6,
+   "file_name": "room1-person-laptop_f_00000454.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 7,
+   "file_name": "room1-person-laptop_f_00000517.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 8,
+   "file_name": "room1-person-laptop_f_00000606.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 9,
+   "file_name": "room1-person-laptop_f_00000737.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 10,
+   "file_name": "room1-person-laptop_f_00000816.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 11,
+   "file_name": "room1-person-laptop_f_00000884.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 12,
+   "file_name": "room1-person-laptop_f_00000981.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 13,
+   "file_name": "room1-person-laptop_f_00001076.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 14,
+   "file_name": "room1-person-laptop_f_00001152.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 15,
+   "file_name": "room1-person-laptop_f_00001233.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 16,
+   "file_name": "room1-person-laptop_f_00001329.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 17,
+   "file_name": "room1-person-laptop_f_00001407.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 18,
+   "file_name": "room1-person-laptop_f_00001499.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 19,
+   "file_name": "room1-person-laptop_f_00001572.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 20,
+   "file_name": "room1-person-laptop_f_00001666.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 21,
+   "file_name": "room1-person-laptop_f_00001753.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 22,
+   "file_name": "room1-person-laptop_f_00001836.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 23,
+   "file_name": "room1-person-laptop_f_00001911.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 24,
+   "file_name": "room1-person-laptop_f_00002010.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 25,
+   "file_name": "room1-person-laptop_f_00002124.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 26,
+   "file_name": "room1-person-laptop_f_00002211.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 27,
+   "file_name": "room1-person-laptop_f_00002321.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 28,
+   "file_name": "room1-person-laptop_f_00002431.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 29,
+   "file_name": "room1-person-laptop_f_00002517.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 30,
+   "file_name": "room1-person-laptop_f_00002629.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 31,
+   "file_name": "room1-wall_f_00000000.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 32,
+   "file_name": "room1-wall_f_00000237.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 33,
+   "file_name": "room1-wall_f_00000410.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 34,
+   "file_name": "room1-wall_f_00000512.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 35,
+   "file_name": "room1-wall_f_00000718.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 36,
+   "file_name": "room1-wall_f_00000917.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 37,
+   "file_name": "room1-wall_f_00001117.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 38,
+   "file_name": "room1-wall_f_00001330.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 39,
+   "file_name": "room1-wall_f_00001442.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 40,
+   "file_name": "room1-wall_f_00001544.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 41,
+   "file_name": "room1-wall_f_00001734.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 42,
+   "file_name": "room1-wall_f_00001848.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 43,
+   "file_name": "room1-wall_f_00001951.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 44,
+   "file_name": "room1-wall_f_00002083.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 45,
+   "file_name": "room1-wall_f_00002268.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 46,
+   "file_name": "room1-wall_f_00002454.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 47,
+   "file_name": "room1-wall_f_00002742.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 48,
+   "file_name": "room1-wall_f_00002919.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 49,
+   "file_name": "room1-wall_f_00003102.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 50,
+   "file_name": "room1-wall_f_00003329.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 51,
+   "file_name": "room1-wall_f_00003485.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 52,
+   "file_name": "room1-wall_f_00003619.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 53,
+   "file_name": "room1-wall_f_00003803.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 54,
+   "file_name": "room1-wall_f_00004027.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 55,
+   "file_name": "room1-wall_f_00004229.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 56,
+   "file_name": "room1-wall_f_00004344.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 57,
+   "file_name": "room1-wall_f_00004558.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 58,
+   "file_name": "room1-wall_f_00004647.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 59,
+   "file_name": "room1-wall_f_00004800.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 60,
+   "file_name": "room1-wall_f_00004930.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 61,
+   "file_name": "room1-wall_f_00005044.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 62,
+   "file_name": "room1-wall_f_00005161.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 63,
+   "file_name": "room1-wall_f_00005270.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 64,
+   "file_name": "room1-wall_f_00005390.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 65,
+   "file_name": "room1-wall_f_00005540.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 66,
+   "file_name": "room1-wall_f_00005703.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 67,
+   "file_name": "room1-wall_f_00005834.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 68,
+   "file_name": "room1-wall_f_00005988.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 69,
+   "file_name": "room1-wall_f_00006082.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 70,
+   "file_name": "room1-wall_f_00006295.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 71,
+   "file_name": "room1-wall_f_00006392.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 72,
+   "file_name": "room1-wall_f_00006512.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 73,
+   "file_name": "room1-wall_f_00006727.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 74,
+   "file_name": "room1-wall_f_00006857.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 75,
+   "file_name": "room1-wall_f_00006937.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 76,
+   "file_name": "room1-wall_f_00007090.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 77,
+   "file_name": "room1-wall_f_00007187.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 78,
+   "file_name": "room1-wall_f_00007309.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 79,
+   "file_name": "room1-wall_f_00007388.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 80,
+   "file_name": "room1-wall_f_00007479.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 81,
+   "file_name": "room1-wall_f_00007596.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 82,
+   "file_name": "room1-wall_f_00007709.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 83,
+   "file_name": "room1-wall_f_00007851.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 84,
+   "file_name": "room1-wall_f_00007981.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 85,
+   "file_name": "room1-wall_f_00008140.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 86,
+   "file_name": "room1-wall_f_00008277.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 87,
+   "file_name": "room1-wall_f_00008373.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 88,
+   "file_name": "room1-wall_f_00008466.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 89,
+   "file_name": "room1-wall_f_00008593.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 90,
+   "file_name": "room1-wall_f_00008798.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 91,
+   "file_name": "synthetic-black_f_00000000.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 92,
+   "file_name": "synthetic-black_f_00000100.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 93,
+   "file_name": "synthetic-black_f_00000200.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 94,
+   "file_name": "synthetic-black_f_00000300.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 95,
+   "file_name": "synthetic-black_f_00000400.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 96,
+   "file_name": "synthetic-noise_f_00000500.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 97,
+   "file_name": "synthetic-noise_f_00000600.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 98,
+   "file_name": "synthetic-noise_f_00000700.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 99,
+   "file_name": "synthetic-noise_f_00000800.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 100,
+   "file_name": "synthetic-noise_f_00000900.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 101,
+   "file_name": "synthetic-dim025_f_00001000.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 102,
+   "file_name": "synthetic-dim025_f_00001100.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 103,
+   "file_name": "synthetic-dim025_f_00001200.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 104,
+   "file_name": "synthetic-dim025_f_00001300.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 105,
+   "file_name": "synthetic-dim025_f_00001400.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 106,
+   "file_name": "synthetic-dim025_f_00001500.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 107,
+   "file_name": "synthetic-dim025_f_00001600.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 108,
+   "file_name": "synthetic-dim025_f_00001700.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 109,
+   "file_name": "synthetic-dim025_f_00001800.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 110,
+   "file_name": "synthetic-dim025_f_00001900.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 111,
+   "file_name": "synthetic-dim012_f_00002000.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 112,
+   "file_name": "synthetic-dim012_f_00002100.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 113,
+   "file_name": "synthetic-dim012_f_00002200.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 114,
+   "file_name": "synthetic-dim012_f_00002300.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 115,
+   "file_name": "synthetic-dim012_f_00002400.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 116,
+   "file_name": "synthetic-dim012_f_00002500.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 117,
+   "file_name": "synthetic-dim012_f_00002600.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 118,
+   "file_name": "synthetic-dim012_f_00002700.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 119,
+   "file_name": "synthetic-dim012_f_00002800.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 120,
+   "file_name": "synthetic-dim012_f_00002900.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 121,
+   "file_name": "synthetic-dim006_f_00003000.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 122,
+   "file_name": "synthetic-dim006_f_00003100.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 123,
+   "file_name": "synthetic-dim006_f_00003200.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 124,
+   "file_name": "synthetic-dim006_f_00003300.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 125,
+   "file_name": "synthetic-dim006_f_00003400.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 126,
+   "file_name": "synthetic-dim006_f_00003500.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 127,
+   "file_name": "synthetic-dim006_f_00003600.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 128,
+   "file_name": "synthetic-dim006_f_00003700.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 129,
+   "file_name": "synthetic-dim006_f_00003800.jpg",
+   "width": 480,
+   "height": 640
+  },
+  {
+   "id": 130,
+   "file_name": "synthetic-dim006_f_00003900.jpg",
+   "width": 480,
+   "height": 640
+  }
+ ],
+ "annotations": [
+  {
+   "id": 1,
+   "image_id": 1,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 2,
+   "image_id": 1,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 3,
+   "image_id": 1,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 4,
+   "image_id": 2,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 5,
+   "image_id": 2,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 6,
+   "image_id": 2,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 7,
+   "image_id": 3,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 8,
+   "image_id": 3,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 9,
+   "image_id": 3,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 10,
+   "image_id": 4,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 11,
+   "image_id": 4,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 12,
+   "image_id": 4,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 13,
+   "image_id": 5,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 14,
+   "image_id": 5,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 15,
+   "image_id": 5,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 16,
+   "image_id": 6,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 17,
+   "image_id": 6,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 18,
+   "image_id": 6,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 19,
+   "image_id": 7,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 20,
+   "image_id": 7,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 21,
+   "image_id": 7,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 22,
+   "image_id": 8,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 23,
+   "image_id": 8,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 24,
+   "image_id": 8,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 25,
+   "image_id": 9,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 26,
+   "image_id": 9,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 27,
+   "image_id": 9,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 28,
+   "image_id": 10,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 29,
+   "image_id": 10,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 30,
+   "image_id": 10,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 31,
+   "image_id": 11,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 32,
+   "image_id": 11,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 33,
+   "image_id": 11,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 34,
+   "image_id": 12,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 35,
+   "image_id": 12,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 36,
+   "image_id": 12,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 37,
+   "image_id": 13,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 38,
+   "image_id": 13,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 39,
+   "image_id": 13,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 40,
+   "image_id": 14,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 41,
+   "image_id": 14,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 42,
+   "image_id": 14,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 43,
+   "image_id": 15,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 44,
+   "image_id": 15,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 45,
+   "image_id": 15,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 46,
+   "image_id": 16,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 47,
+   "image_id": 16,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 48,
+   "image_id": 16,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 49,
+   "image_id": 17,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 50,
+   "image_id": 17,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 51,
+   "image_id": 17,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 52,
+   "image_id": 18,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 53,
+   "image_id": 18,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 54,
+   "image_id": 18,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 55,
+   "image_id": 19,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 56,
+   "image_id": 19,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 57,
+   "image_id": 19,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 58,
+   "image_id": 20,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 59,
+   "image_id": 20,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 60,
+   "image_id": 20,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 61,
+   "image_id": 21,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 62,
+   "image_id": 21,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 63,
+   "image_id": 21,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 64,
+   "image_id": 22,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 65,
+   "image_id": 22,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 66,
+   "image_id": 22,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 67,
+   "image_id": 23,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 68,
+   "image_id": 23,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 69,
+   "image_id": 23,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 70,
+   "image_id": 24,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 71,
+   "image_id": 24,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 72,
+   "image_id": 24,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 73,
+   "image_id": 25,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 74,
+   "image_id": 25,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 75,
+   "image_id": 25,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 76,
+   "image_id": 26,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 77,
+   "image_id": 26,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 78,
+   "image_id": 26,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 79,
+   "image_id": 27,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 80,
+   "image_id": 27,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 81,
+   "image_id": 27,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 82,
+   "image_id": 28,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 83,
+   "image_id": 28,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 84,
+   "image_id": 28,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 85,
+   "image_id": 29,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 86,
+   "image_id": 29,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 87,
+   "image_id": 29,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 88,
+   "image_id": 30,
+   "category_id": 2,
+   "track_id": "laptop1",
+   "bbox": [
+    144.0,
+    384.0,
+    105.6,
+    89.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 89,
+   "image_id": 30,
+   "category_id": 22,
+   "track_id": "person1",
+   "bbox": [
+    105.6,
+    371.2,
+    259.2,
+    249.6
+   ],
+   "iscrowd": 0
+  },
+  {
+   "id": 90,
+   "image_id": 30,
+   "category_id": 10,
+   "track_id": "phone1",
+   "bbox": [
+    302.4,
+    492.8,
+    38.4,
+    25.6
+   ],
+   "iscrowd": 0
+  }
+ ],
+ "categories": [
+  {
+   "id": 1,
+   "name": "bottle"
+  },
+  {
+   "id": 2,
+   "name": "laptop"
+  },
+  {
+   "id": 3,
+   "name": "laptop bag"
+  },
+  {
+   "id": 4,
+   "name": "backpack"
+  },
+  {
+   "id": 5,
+   "name": "handbag"
+  },
+  {
+   "id": 6,
+   "name": "cup"
+  },
+  {
+   "id": 7,
+   "name": "wine glass"
+  },
+  {
+   "id": 8,
+   "name": "bowl"
+  },
+  {
+   "id": 9,
+   "name": "vase"
+  },
+  {
+   "id": 10,
+   "name": "cell phone"
+  },
+  {
+   "id": 11,
+   "name": "remote"
+  },
+  {
+   "id": 12,
+   "name": "mouse"
+  },
+  {
+   "id": 13,
+   "name": "keyboard"
+  },
+  {
+   "id": 14,
+   "name": "book"
+  },
+  {
+   "id": 15,
+   "name": "scissors"
+  },
+  {
+   "id": 16,
+   "name": "clock"
+  },
+  {
+   "id": 17,
+   "name": "banana"
+  },
+  {
+   "id": 18,
+   "name": "apple"
+  },
+  {
+   "id": 19,
+   "name": "orange"
+  },
+  {
+   "id": 20,
+   "name": "teddy bear"
+  },
+  {
+   "id": 21,
+   "name": "chair"
+  },
+  {
+   "id": 22,
+   "name": "person"
+  },
+  {
+   "id": 101,
+   "name": "user hand"
+  },
+  {
+   "id": 102,
+   "name": "other hand"
+  }
+ ]
+}

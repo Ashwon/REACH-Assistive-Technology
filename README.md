@@ -9,9 +9,11 @@ hand tracking → deterministic spatial guidance → TTS.
 ```
 Voice → Claude (backend proxy, once) → target locked
 Camera frame → EfficientDet candidates + HSV beverage color (own thread, ~3 Hz, stale results dropped)
-            → MediaPipe fingertips (all five exposed; the index tip drives guidance)
+              → CandidateTracker evidence: seen in ≥ 3 runs, class conflicts, plausible box, low light
+            → MediaPipe hands (up to 2) → HandSelector: the user's hand, chosen by a deliberate gesture
+            → ReachCore state machine (one lock for every transition and every spoken cue)
             → SpatialEngine (smoothing + hysteresis + confirm + throttle), 2D only today
-            → TTS: "Move right." / "Lined up. Reach forward slowly."  (never "reached" without depth)
+            → TTS: "Move right." / "Lined up. Reach forward slowly."  (never "reached" from 2D overlap)
 ```
 
 ## Setup (15 min)
@@ -72,9 +74,59 @@ Camera frame → EfficientDet candidates + HSV beverage color (own thread, ~3 Hz
 - Claude/backend/internet fails → offline keyword target selection; the guidance
   loop never touches the network.
 - Detector misses → target box held 1.5 s, then "I can't see the bottle. Hold still." (or "Your hand is
-  covering the bottle." when the fingertip is over where it was). A re-lock is announced ("Found the bottle again.").
-- Hand missing > 0.5 s (4 s right after "guide me") → "I can't see your hand."
+  covering the bottle…" when the fingertip is over where it was). A re-lock is announced ("Found the bottle again.").
+  Still gone 4 s later (and not covered by the hand) → TRACKING_LOST: "I lost the bottle. Say guide me to try again…";
+  nothing resumes until the user says guide me or searches again.
+- Hand missing > 0.5 s → "I can't see your hand." Missing > 2 s, or another hand comes close enough that the two
+  could be confused → "I lost your hand. Guidance paused." and the user confirms their hand again (gesture).
+  Guidance is never handed to another hand.
 - Speech recognition fails → RESET + retry; exact phrases work offline.
+
+## Hand identity (`hand/HandSelector.kt`)
+
+Before a task the user tells REACH which hand is theirs. At start-up (and via the hand button, or by saying "my hand")
+REACH says "Raise the hand you'll reach with, then close it into a fist." The hand seen **open after the prompt and then
+held as a fist for 300 ms** is selected ("Got your hand."). Other hands in view are ignored unless they make the same
+gesture; then nobody is selected and the user is asked again. Nearest hand, first detection, handedness and MediaPipe's
+list order are never used: MediaPipe gives hands no identity and no stable order, and with one hand slot it would not
+even report a second hand. After selection every visible hand has its own track (palm + size continuity; recently seen
+tracks claim their hands first), so a bystander's hand stays on its own track. All five fingertips and the guidance
+point come from that one hand. Search never selects a hand; "guide me" without a selected hand asks for the gesture
+first and gives no direction until it is done.
+
+Limits: this is not biometric identification. Someone else opening and closing their hand on cue at the same moment
+makes it ambiguous (REACH says so); someone doing it *instead of* the user would be taken as the user. The fist reading
+(fingertips nearer the wrist than their middle joints) is unit-tested on synthetic landmarks and still needs checking
+on the A15 at several distances. Cost of two hand slots on the A15: hand landmarker ~93 ms (no hand) / ~130 ms (one
+hand) median per frame vs ~60–105 ms with one slot; ~8–10 fps overall.
+
+## Guidance states (`ReachCore.kt`)
+
+`IDLE → SEARCHING → TARGET_LOCKED → GUIDING → REACHED`, plus `TRACKING_LOST` (target). One lock covers every transition
+and every spoken guidance line. Every transition bumps a session number; detector results and Claude interpretations
+carry the session they started in, so a late result cannot re-lock, redirect or restart guidance after reached or
+cancel. **Reached** needs evidence: depth-verified contact (implemented, not fed: no depth in this pipeline) or the user
+saying "got it" / tapping **I've got it**. Then one "Bottle reached." is spoken (the speaker flushes its queue) and no
+cue is spoken again until the user starts a new search or says guide me. A 2D overlap never counts as reached.
+
+## Object evidence (`grounding/`)
+
+A detection is offered as a target only after the tracker has seen it in ≥ 3 detector runs (~1 s) with a plausible box
+(near-whole-frame boxes are rejected: in dim A15 frames every junk box covered ≥ 0.73 of the frame). A spot the model
+also called something else within the last 1.5 s (IoU ≥ 0.5, any class, e.g. "person" one frame and "bed" the next) is
+a conflict: REACH says "I can't tell if that's a person or a bed." Wording follows the evidence: "Found the laptop" only
+for a settled, unconflicted detection with smoothed score ≥ 0.6 in a lit frame (mean luma ≥ 45); otherwise "I might see
+the laptop, but I'm not sure." Repeating the same detection makes it stable, never "verified". Asking for a category the
+model has no class for ("laptop bag") gets "I can't recognise laptop bags yet" instead of matching "laptop".
+
+## Evaluation (`dataset/README.md`, `tools/`)
+
+Batch evaluation replaces scenario-by-scenario phone testing. `tools/eval_on_device.sh dataset/<name> <models…>` runs
+every labelled frame through the real models on the phone, then scores them on the JVM with the app's own tracking,
+evidence, locking, hand-selection and state-machine code: per-class precision/recall, false laptops per negative image,
+confusion, stability, target switches, other-hand frames, directions after reached, latency, memory, thermal.
+`dataset/categories.json` is the one category list; `tools/split_dataset.py` + `tools/train_detector.py` are the
+fine-tuning path (not run yet: there is no training data). Manual phone testing is for final integration checks only.
 
 ## Screen (`MainActivity`, `ui/ReachStatus.kt`, `ui/OverlayView.kt`)
 
@@ -88,9 +140,10 @@ One portrait screen, dark high-contrast theme, Material 3 (already a dependency)
   "Direction only · no distance" while guiding, and the last phrase actually sent to TTS.
 - **Request:** text field with a mic icon; **Find an Object** submits typed text or, if empty, listens.
   The actions follow the controller's real mode: Find → (Searching…, Cancel) → Start Guidance / Cancel →
-  Stop Guidance.
-- Status wording is derived only from real state and is unit-tested: "Guiding" exists only while guiding,
-  "Reached" only after the engine reported it (depth path; never in 2D).
+  I've got it / Stop Guidance; after a lost target, Start Guidance is the retry. The hand button (top bar)
+  re-runs hand selection.
+- Status wording is derived only from real state and is unit-tested: "Guiding" exists only while guiding with the
+  user's hand in view, "Reached" only in REACHED (depth contact or the user's confirmation; never from 2D overlap).
 - Camera permission refused, camera busy (no frames for 3 s) and model-load failure each replace the live
   view with a plain-language message instead of closing the app.
 
@@ -99,9 +152,8 @@ One portrait screen, dark high-contrast theme, Material 3 (already a dependency)
 - **Axes:** normalized coordinates of the upright 480×640 CameraX analysis frame, the one bitmap both the
   detector and the hand landmarker run on. x 0→1 left→right, y 0→1 top→bottom. Chest-mounted rear camera:
   image right = user's right, image up = up (phone upright).
-- **Error** = locked box centre − index fingertip (landmark 8). EMA-smoothed (α 0.5 per frame).
-  Hands smaller than 0.06 (wrist→middle knuckle, frame units) are ignored: at the A15's ~52° portrait
-  FOV that is a hand more than ~1.5 m away, i.e. not the wearer's.
+- **Error** = locked box centre − index fingertip (landmark 8) of the selected hand (see Hand identity).
+  EMA-smoothed (α 0.5 per frame).
 - **Thresholds (box-relative, frame units):** lined up horizontally when |ex| < max(0.03, 0.35·w),
   correct again when |ex| > that + max(0.03, 0.25·w); vertically |ey| < max(0.03, 0.30·h), re-enter at
   + max(0.04, 0.15·h). Horizontal is corrected first.
@@ -126,9 +178,13 @@ One portrait screen, dark high-contrast theme, Material 3 (already a dependency)
 
 - No centimeter accuracy claim; proximity is a heuristic in Level 1.
 - The detector is EfficientDet-Lite0 (COCO). It can only report the COCO names in its
-  embedded labels, and has **no `can` class**: a soda can is only found if the model
-  happens to call it a bottle/cup/vase. The allowlist lives in `SupportedClasses`
-  (`grounding/Detection.kt`); anything else is logged as `rejected` and ignored.
+  embedded labels, and has **no `can` or `laptop bag` class**: a soda can is only found if the model
+  happens to call it a bottle/cup/vase. Supported categories: `dataset/categories.json` (kept in sync with
+  `SupportedClasses` by a test). Measured on recorded A15 frames: a black laptop seen from behind was never
+  called a laptop (30/30 frames; "backpack" at 0.22–0.30), a phone on the floor was missed 30/30, a person
+  lying down was "bed" in 16/30 frames, train wheels painted on a wall were "scissors" (0.36–0.46). These are
+  model limits; the app's job is to not state them as fact (see Object evidence). Better accuracy needs the
+  labelled data and the acceptance test in `dataset/README.md`.
 - Beverage identity (coke/pepsi/sprite/monster) is an HSV color guess on top of those
   containers, demo-curated and unverified on real cans.
 - Open-vocabulary grounding would slot in behind `ObjectGrounder` later.

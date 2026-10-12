@@ -20,7 +20,14 @@ import kotlin.math.abs
  * Depth: only when the caller passes metric depth for the target and the fingertip, both sampled from one
  * depth map registered to this same frame, can "Move closer", "Stop" and "reached" be produced.
  */
-enum class Guidance { LEFT, RIGHT, UP, DOWN, LINED_UP_2D, CLOSER, STOP, REACHED, HAND_COVERS_TARGET, HAND_LOST, TARGET_LOST, NONE }
+enum class Guidance {
+    LEFT, RIGHT, UP, DOWN, LINED_UP_2D, CLOSER, STOP, REACHED, HAND_COVERS_TARGET, HAND_LOST,
+    HAND_SHOW, HAND_TOO_FAR, HAND_FIST, HAND_AMBIGUOUS, // establishing which hand is the user's (HandSelector)
+    TARGET_LOST, NONE;
+
+    /** Cues that move the hand. Everything else is a status line and is repeated less often. */
+    val directional get() = this == LEFT || this == RIGHT || this == UP || this == DOWN || this == CLOSER
+}
 
 /** The words for a cue, shared by the voice and the screen so both always say the same thing. */
 fun Guidance.phrase(target: String): String? = when (this) {
@@ -32,8 +39,13 @@ fun Guidance.phrase(target: String): String? = when (this) {
     Guidance.CLOSER -> "Move closer."
     Guidance.STOP -> "Stop."
     Guidance.REACHED -> "${target.replaceFirstChar { it.uppercase() }} reached."
-    Guidance.HAND_COVERS_TARGET -> "Your hand is covering the $target. Reach forward slowly."
+    // 2D cannot tell covering from touching, so the user says when they have it (no depth in this pipeline).
+    Guidance.HAND_COVERS_TARGET -> "Your hand is covering the $target. If you're touching it, tap I've got it."
     Guidance.HAND_LOST -> "I can't see your hand."
+    Guidance.HAND_SHOW -> "Raise the hand you'll reach with in front of the camera."
+    Guidance.HAND_TOO_FAR -> "Bring your hand closer to the camera."
+    Guidance.HAND_FIST -> "Now close that hand into a fist."
+    Guidance.HAND_AMBIGUOUS -> "I saw more than one hand close. Only you: open your hand, then close it into a fist."
     Guidance.TARGET_LOST -> "I can't see the $target. Hold still."
     Guidance.NONE -> null
 }
@@ -152,12 +164,14 @@ class SpatialEngine {
 }
 
 /**
- * Rate limiter for spoken guidance: a changed cue at most every minGapMs, the same cue repeated at most
- * every repeatMs. STOP and REACHED are urgent and skip the gap. quiet() lets an announcement finish.
+ * Rate limiter for spoken guidance: a changed cue at most every minGapMs, the same directional cue repeated
+ * at most every repeatMs, a status line ("Lined up", "I can't see your hand"...) every statusRepeatMs.
+ * STOP and REACHED are urgent and skip the gap. quiet() lets an announcement finish.
  */
 class GuidanceThrottle(
     private val minGapMs: Long = 1100,
-    private val repeatMs: Long = 2600
+    private val repeatMs: Long = 2600,
+    private val statusRepeatMs: Long = 6000
 ) {
     private var lastCue: Guidance = Guidance.NONE
     private var lastSpokenAt = 0L
@@ -169,7 +183,7 @@ class GuidanceThrottle(
         if (!urgent && now < quietUntil) return null
         val gap = now - lastSpokenAt
         val changed = cue != lastCue
-        if ((changed && (urgent || gap >= minGapMs)) || (!changed && gap >= repeatMs)) {
+        if ((changed && (urgent || gap >= minGapMs)) || (!changed && gap >= if (cue.directional) repeatMs else statusRepeatMs)) {
             lastCue = cue; lastSpokenAt = now
             return cue
         }

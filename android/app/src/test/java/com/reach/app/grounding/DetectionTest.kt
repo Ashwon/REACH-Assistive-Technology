@@ -59,6 +59,21 @@ class BoxTest {
         assertFalse(Box(0f, 0f, Float.NaN, 0.5f).isValid())
         assertEquals(1f, Box.clamped(-0.2f, 0f, 1.4f, 1f).right, 0f)   // clamp keeps it in frame
     }
+
+    @Test fun nearWholeFrameBoxesAreImplausible() {
+        // Boxes the A15 replay of underexposed frames produced (laptop 0.21, surfboard 0.28, clock 0.28 ...).
+        for (b in listOf(Box(0f, 0f, 0.74f, 0.99f), Box(0.01f, 0f, 0.84f, 0.98f), Box(0f, 0f, 0.96f, 0.99f)))
+            assertFalse("$b", b.isPlausible())
+        assertTrue(Box(0.45f, 0.85f, 0.95f, 0.98f).isPlausible())   // the real laptop at the frame edge
+        assertTrue(Box(0.3f, 0.2f, 0.8f, 0.95f).isPlausible())      // a person/chair close up
+    }
+
+    @Test fun iou() {
+        val a = Box(0f, 0f, 0.2f, 0.2f)
+        assertEquals(1f, a.iou(a), 1e-6f)
+        assertEquals(0f, a.iou(Box(0.3f, 0.3f, 0.5f, 0.5f)), 0f)
+        assertEquals(1f / 7f, a.iou(Box(0.1f, 0.1f, 0.3f, 0.3f)), 1e-6f)
+    }
 }
 
 class TargetPickTest {
@@ -128,6 +143,73 @@ class CandidateTrackerTest {
         val b = t.assign(listOf(det("cup", 0.3f)), 5000)
         assertNotEquals(a[0], b[0])
     }
+
+    @Test fun anObjectIsConfirmedOnlyAfterSeveralDetectorRunsAndItsScoreIsSmoothed() {
+        val t = CandidateTracker()
+        val id = t.assign(listOf(Det("laptop", 0.70f, box(0.5f))), 0)[0]
+        assertFalse(t.evidence(id)!!.confirmed)                        // a single frame is never enough
+        t.assign(listOf(Det("laptop", 0.40f, box(0.5f))), 300)
+        assertFalse(t.evidence(id)!!.confirmed)
+        t.assign(listOf(Det("laptop", 0.40f, box(0.5f))), 600)
+        val ev = t.evidence(id)!!
+        assertTrue(ev.confirmed); assertEquals(0.475f, ev.score, 1e-6f) // 0.70 -> 0.55 -> 0.475
+    }
+
+    @Test fun repeatingTheSameDetectionConfirmsStabilityButNotTheClass() {
+        // A dark patch reported as "laptop" in every frame is stable; stability is all `confirmed` claims.
+        val t = CandidateTracker()
+        var id = -1
+        repeat(10) { id = t.assign(listOf(Det("laptop", 0.42f, box(0.5f))), it * 300L)[0] }
+        val ev = t.evidence(id)!!
+        assertTrue(ev.confirmed)
+        val c = Candidate(id, "laptop", "unknown", box(0.5f), ev.score, null, ev.confirmed, ev.conflict)
+        assertFalse(c.sure) // a 0.42 detector score is still "maybe a laptop", however often it repeats
+    }
+
+    @Test fun aSpotTheModelCallsTwoDifferentThingsIsAConflict() {
+        val t = CandidateTracker()
+        val bottle = t.assign(listOf(det("bottle", 0.5f)), 0)[0]
+        t.assign(listOf(det("handbag", 0.5f)), 300)                    // same object, other class next frame
+        t.assign(listOf(det("bottle", 0.5f)), 600)
+        assertEquals("handbag", t.evidence(bottle)!!.conflict)
+        t.assign(listOf(det("bottle", 0.5f)), 2000)                     // handbag track expired, dispute remembered
+        assertEquals("handbag", t.evidence(bottle)!!.conflict)
+        t.assign(listOf(det("bottle", 0.5f)), 3200)                     // > ttl since the two last coexisted
+        assertNull(t.evidence(bottle)!!.conflict)
+    }
+
+    @Test fun aConflictDoesNotFlickerWithBoxJitter() {
+        val t = CandidateTracker()
+        val bed = Box(0.01f, 0.55f, 0.75f, 0.99f)
+        t.assign(listOf(Det("bed", 0.5f, bed)), 0)
+        val p = t.assign(listOf(Det("person", 0.5f, Box(0.26f, 0.58f, 0.73f, 0.95f))), 100)[0]  // IoU 0.53 with the bed
+        t.assign(listOf(Det("bed", 0.5f, bed)), 200)
+        t.assign(listOf(Det("person", 0.5f, Box(0.26f, 0.58f, 0.70f, 0.93f))), 300)             // IoU 0.48 this frame
+        assertEquals("bed", t.evidence(p)!!.conflict)
+    }
+
+    @Test fun aBottleBesideABagIsNoConflict() {
+        val t = CandidateTracker()
+        val ids = t.assign(listOf(det("bottle", 0.40f), det("handbag", 0.55f)), 0)
+        assertNull(t.evidence(ids[0])!!.conflict); assertNull(t.evidence(ids[1])!!.conflict)
+    }
+}
+
+class BottleAndBagTest {
+    private val bottle = cand(1, "bottle", 0.40f)
+    private val bag = cand(2, "handbag", 0.60f)
+
+    @Test fun askingForOneNeverResolvesToTheOther() {
+        assertEquals(1, (pickTarget(SupportedClasses.resolve("find my bottle")!!, listOf(bag, bottle)) as TargetPick.One).c.id)
+        assertEquals(2, (pickTarget(SupportedClasses.resolve("where is my bag")!!, listOf(bottle, bag)) as TargetPick.One).c.id)
+        assertEquals(TargetPick.None, pickTarget(SupportedClasses.resolve("find my bottle")!!, listOf(bag)))
+    }
+
+    @Test fun lockedBottleNeverSwitchesToTheBagWhenTheBottleDisappears() {
+        val l = TargetLock(); l.lock(bottle, 0)
+        assertNull(l.update(listOf(bag), 2000)); assertNull(l.update(listOf(cand(2, "handbag", 0.42f)), 2300))
+        assertEquals(TrackStatus.LOST, l.status); assertEquals(1, l.id); assertEquals("bottle", l.label)
+    }
 }
 
 class RecentCandidatesTest {
@@ -179,6 +261,16 @@ class TargetLockTest {
         assertEquals(5, l.update(listOf(cand(5, "cup", 0.33f)), 2300)!!.id)
         assertEquals(TrackStatus.TRACKING, l.status); assertEquals(5, l.id)
         assertEquals(1, l.reacquisitions) // counted, so the app announces it
+    }
+
+    @Test fun neverReacquiresAnUnsettledOrDisputedDetection() {
+        val l = locked()
+        l.update(emptyList(), 2000)
+        val near = Candidate(5, "cup", "unknown", box(0.33f), 0.8f, null, confirmed = false)
+        assertNull(l.update(listOf(near), 2100))                                  // seen in one frame only
+        assertNull(l.update(listOf(near.copy(confirmed = true, conflict = "bowl")), 2200)) // cup or bowl?
+        assertEquals(TrackStatus.LOST, l.status); assertEquals(0, l.reacquisitions)
+        assertEquals(5, l.update(listOf(near.copy(confirmed = true)), 2300)!!.id)
     }
 
     @Test fun inactiveLockDoesNothing() {

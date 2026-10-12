@@ -24,11 +24,11 @@ class FingertipsTest {
         assertEquals(0.5f, HandResult.fromLandmarks(lm, 1f).handSize, 1e-6f)
     }
 
-    @Test fun farAwayHandIsNotTheWearers() {
-        val lm = hand.toMutableList(); lm[0] = Lm(0.50f, 0.50f)
-        lm[9] = Lm(0.50f, 0.46f); assertFalse(HandResult.fromLandmarks(lm, 1f).likelyWearer) // 0.04: bystander-sized
-        lm[9] = Lm(0.50f, 0.40f); assertTrue(HandResult.fromLandmarks(lm, 1f).likelyWearer)  // 0.10: arm's reach
-        assertFalse(HandResult.NONE.likelyWearer)
+    @Test fun palmIsTheCentreOfTheWristAndKnuckles() {
+        val lm = hand.toMutableList()
+        listOf(0, 5, 9, 13, 17).forEachIndexed { i, k -> lm[k] = Lm(0.1f * i, 0.2f) }
+        val r = HandResult.fromLandmarks(lm, 1f)
+        assertEquals(0.2f, r.palmX, 1e-6f); assertEquals(0.2f, r.palmY, 1e-6f)
     }
 
     @Test fun missingOrPartialHandIsNotPresent() {

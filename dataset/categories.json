@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "about": "The one list of object categories REACH supports. Annotators label these names; the evaluator scores them; training uses their ids (0 is reserved for background). model_labels = which labels of the CURRENT detector (efficientdet_lite0.tflite, COCO) count as this category. A unit test (CategorySpecTest) keeps this file, SupportedClasses and the model's embedded labels in agreement.",
+  "current_model": "efficientdet_lite0.tflite",
+  "categories": [
+    {"id": 1,  "name": "bottle",      "model_labels": ["bottle"],      "model_support": "native", "note": "COCO 'bottle' covers water/soda/wine bottles; drink cans are often reported as bottle/cup/vase"},
+    {"id": 2,  "name": "laptop",      "model_labels": ["laptop"],      "model_support": "native", "note": "a closed or rear-facing dark lid is often missed (A15 recorded frames: read as backpack 0.22-0.30)"},
+    {"id": 3,  "name": "laptop bag",  "model_labels": [],              "model_support": "none",   "note": "no COCO class; needs custom training. The app says it cannot recognise laptop bags"},
+    {"id": 4,  "name": "backpack",    "model_labels": ["backpack"],    "model_support": "native"},
+    {"id": 5,  "name": "handbag",     "model_labels": ["handbag"],     "model_support": "native"},
+    {"id": 6,  "name": "cup",         "model_labels": ["cup"],         "model_support": "native"},
+    {"id": 7,  "name": "wine glass",  "model_labels": ["wine glass"],  "model_support": "native"},
+    {"id": 8,  "name": "bowl",        "model_labels": ["bowl"],        "model_support": "native"},
+    {"id": 9,  "name": "vase",        "model_labels": ["vase"],        "model_support": "native"},
+    {"id": 10, "name": "cell phone",  "model_labels": ["cell phone"],  "model_support": "native"},
+    {"id": 11, "name": "remote",      "model_labels": ["remote"],      "model_support": "native"},
+    {"id": 12, "name": "mouse",       "model_labels": ["mouse"],       "model_support": "native"},
+    {"id": 13, "name": "keyboard",    "model_labels": ["keyboard"],    "model_support": "native"},
+    {"id": 14, "name": "book",        "model_labels": ["book"],        "model_support": "native"},
+    {"id": 15, "name": "scissors",    "model_labels": ["scissors"],    "model_support": "native"},
+    {"id": 16, "name": "clock",       "model_labels": ["clock"],       "model_support": "native"},
+    {"id": 17, "name": "banana",      "model_labels": ["banana"],      "model_support": "native"},
+    {"id": 18, "name": "apple",       "model_labels": ["apple"],       "model_support": "native"},
+    {"id": 19, "name": "orange",      "model_labels": ["orange"],      "model_support": "native"},
+    {"id": 20, "name": "teddy bear",  "model_labels": ["teddy bear"],  "model_support": "native"},
+    {"id": 21, "name": "chair",       "model_labels": ["chair"],       "model_support": "native"},
+    {"id": 22, "name": "person",      "model_labels": ["person"],      "model_support": "native"}
+  ],
+  "hand_categories": [
+    {"id": 101, "name": "user hand",  "note": "the hand of the person wearing the phone; annotate on sequences used for hand-identity evaluation"},
+    {"id": 102, "name": "other hand", "note": "any other person's hand"}
+  ]
+}
