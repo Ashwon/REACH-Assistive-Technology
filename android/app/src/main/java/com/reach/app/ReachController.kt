@@ -12,14 +12,18 @@ import com.reach.app.grounding.ObjectGrounder
 import com.reach.app.grounding.ObjectStore
 import com.reach.app.grounding.RecentCandidates
 import com.reach.app.grounding.SupportedClasses
+import com.reach.app.grounding.TargetLock
 import com.reach.app.grounding.TargetPick
 import com.reach.app.grounding.clarifyQuestion
 import com.reach.app.grounding.pickTarget
 import com.reach.app.grounding.sideWord
 import com.reach.app.haptic.HapticLink
+import com.reach.app.hand.HandSelector
 import com.reach.app.hand.HandTracker
 import com.reach.app.hand.Side
 import com.reach.app.spatial.DepthFrame
+import com.reach.app.spatial.GuidanceThrottle
+import com.reach.app.spatial.SpatialEngine
 import com.reach.app.speech.Speaker
 import com.reach.app.talk.Act
 import com.reach.app.talk.Conversation
@@ -27,6 +31,7 @@ import com.reach.app.talk.Tutorial
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
@@ -43,9 +48,11 @@ import kotlin.math.atan
  * hand tracker + detector + core. The detector (~150 ms) runs on its own thread so it never stalls
  * fingertip tracking.
  */
-private const val GROUND_INTERVAL_MS = 300L
+private const val GROUND_INTERVAL_MS = 45L
 /** A detection whose frame is older than this when it finishes is dropped, never applied. */
-private const val STALE_MS = 600L
+private const val STALE_MS = 1500L
+/** How long a spoken/typed search scans incoming detector frames while the user looks around before giving up. */
+private const val SEARCH_WAIT_MS = 60_000L
 
 /** Spoken/typed commands that are not an object request (kept out of the request field). */
 fun isCommand(text: String) = Conversation().handle(text, emptyList(), -1, canGuide = true, nowMs = 0L) !is Act.Search
@@ -63,7 +70,55 @@ class ReachController(
     private val store: ObjectStore,
     private val onUi: (ReachSnapshot) -> Unit
 ) {
-    private val core = ReachCore({ speaker.say(it) }, log = { Log.i("REACH", it) }, haptic = { haptics.request(it) })
+    private val core = ReachCore(
+        say = { speaker.say(it) },
+        log = { Log.i("REACH", it) },
+        depthReachedValidated = false,
+        haptic = { haptics.request(it) },
+        handConfig = HandSelector.Config(
+            graceMs = 60_000L,
+            trackTtlMs = 4000L,
+            recentMs = 950L,
+            gate = 0.45f,
+            shortGapMs = 4000L,
+            reacquireGate = 0.45f,
+            reacquireMinRatio = 0.4f,
+            reacquireMaxRatio = 2.5f,
+            minReacquireScore = 0.25f,
+            returnConfirmMs = 100L,
+            autoEnroll = true,
+            holdMissingMs = 750L
+        ),
+        lock = TargetLock(
+            freshMs = 2800L,
+            occludedGraceMs = 18_000L,
+            missingGraceMs = 10_000L,
+            reacquireDist = 0.45f,
+            minLookSimilarity = 0.25f,
+            allowUnconfirmedReacquire = true
+        ),
+        spatial = SpatialEngine(
+            depthReachedValidated = false,
+            confirmMs = 100L,
+            alpha = 0.65f,
+            handGraceMs = 2400L,
+            firstHandMs = 5000L,
+            allow2dReach = false,
+            maxExitX = 0.10f,
+            maxExitY = 0.09f
+        ),
+        throttle = GuidanceThrottle(
+            minGapMs = 850L,
+            repeatMs = 2400L,
+            statusRepeatMs = 4500L,
+            perStatusCooldownMs = 8500L
+        ),
+        introQuietMs = 1200L,
+        relockQuietMs = 700L,
+        boxTurnDeg = 45f,
+        singleHandSetup = true,
+        autoResumeGuidance = true
+    )
     val mode get() = core.mode
     private val busy = AtomicBoolean(false)
     val photoMatching get() = embedder != null
@@ -73,7 +128,7 @@ class ReachController(
     private val talk = Conversation(memory = memory)
 
     @Volatile private var latestCandidates: List<Candidate> = emptyList()
-    private val recent = RecentCandidates()
+    private val recent = RecentCandidates(graceMs = 3000L)
     /** Confirmed detections plus those that blinked out within the last second; what requests resolve against. */
     @Volatile private var selectable: List<Candidate> = emptyList()
     private val detectExec = Executors.newSingleThreadExecutor()
@@ -192,8 +247,10 @@ class ReachController(
             is Act.Say -> core.announce(act.line, now)
             is Act.Lock -> {
                 interpretJob?.cancel()
-                if (core.lockOn(act.c, act.name, act.c.score.toDouble(), offline = true, now, act.prefix))
+                if (core.lockOn(act.c, act.name, act.c.score.toDouble(), offline = true, now, act.prefix)) {
                     talk.onLocked(SupportedClasses.resolve(act.name), act.c.id, now)
+                    core.startGuidance(now)
+                }
             }
             is Act.Search -> search(act.text)
             is Act.Register -> register(act, now)
@@ -243,7 +300,10 @@ class ReachController(
             when {
                 r is IdMatch.Match -> if (core.onSearchResult(token, r.c, label, r.c.score.toDouble(), offline = true, "", now,
                         prefix = "The $label ${r.c.box.sideWord()} looks like your $name from its saved photo. ", registered = name) &&
-                    core.mode == Mode.TARGET_LOCKED) talk.onLocked(act.spec, r.c.id, now)
+                    core.mode == Mode.TARGET_LOCKED) {
+                    talk.onLocked(act.spec, r.c.id, now)
+                    core.startGuidance(now)
+                }
                 // "find my laptop": the photo did not settle it, so it is an ordinary request with no ownership claim
                 !act.explicit -> if (core.session == token) search(act.text)
                 r is IdMatch.Unsure -> if (core.onSearchResult(token, null, label, 0.0, true,
@@ -257,16 +317,50 @@ class ReachController(
 
     private fun search(text: String) {
         val token = core.beginSearch()
-        val snapshot = selectable
         interpretJob?.cancel()
         interpretJob = scope.launch {
+            val wantedSpec = SupportedClasses.resolve(text)
+            val startWait = SystemClock.uptimeMillis()
+            var lastPromptAt = startWait
+            var announcedLookAround = false
+            var snapshot = selectable
+            if (wantedSpec != null && wantedSpec.supported && snapshot.none { wantedSpec.matches(it) }) {
+                while (core.session == token && core.mode == Mode.SEARCHING &&
+                    SystemClock.uptimeMillis() - startWait < SEARCH_WAIT_MS
+                ) {
+                    delay(120)
+                    if (core.session != token || core.mode != Mode.SEARCHING) return@launch
+                    val nowLoop = SystemClock.uptimeMillis()
+                    val cur = selectable
+                    if (cur.any { wantedSpec.matches(it) }) {
+                        snapshot = cur
+                        break
+                    }
+                    // Also check latestCandidates after 600ms so a single clear sighting while panning locks immediately
+                    if (nowLoop - startWait >= 600L) {
+                        val rawMatch = latestCandidates.filter { wantedSpec.matches(it) && it.conflict == null && !it.lowLight }
+                        if (rawMatch.size == 1) {
+                            snapshot = cur + rawMatch.map { it.copy(confirmed = true) }
+                            break
+                        }
+                    }
+                    if (!announcedLookAround && nowLoop - startWait >= 900L) {
+                        announcedLookAround = true
+                        lastPromptAt = nowLoop
+                        core.announce("Looking for your ${wantedSpec.name}. Slowly look around with the camera.", nowLoop)
+                    } else if (announcedLookAround && nowLoop - lastPromptAt >= 9000L) {
+                        lastPromptAt = nowLoop
+                        core.announce("Still looking for the ${wantedSpec.name}. Keep panning slowly.", nowLoop)
+                    }
+                }
+            }
             val r = claude.interpret(text, snapshot)
             var chosen = if (r.needsClarification) null else snapshot.firstOrNull { it.id == r.candidateId }
-            val asked = SupportedClasses.resolve(r.target).takeIf { r.target.isNotBlank() } ?: SupportedClasses.resolve(text)
+            val asked = SupportedClasses.resolve(r.target).takeIf { r.target.isNotBlank() } ?: wantedSpec
             // Several of that class in view and nothing local singles this one out: never take the interpreter's pick.
             val local = asked?.let { pickTarget(it, snapshot) }
             var question = r.question
-            var clarify = (local as? TargetPick.Ambiguous)?.let { asked!! to it.options }
+            var clarify = (local as? TargetPick.Ambiguous)?.let { asked to it.options }
             val same = chosen?.let { c -> snapshot.filter { it.label == c.label && it.confirmed } }.orEmpty()
             if (chosen != null && !(local is TargetPick.One && local.c.id == chosen.id) && same.size >= 2) {
                 val spec = asked?.takeIf { it.supported && chosen!!.label in it.labels } ?: SupportedClasses.resolve(chosen.label)!!
@@ -279,7 +373,10 @@ class ReachController(
             if (!core.onSearchResult(token, chosen, r.target, r.confidence, !r.fromClaude, question, now)) {
                 Log.i("REACH", "dropped stale interpretation of \"$text\""); return@launch
             }
-            if (chosen != null && core.mode == Mode.TARGET_LOCKED) talk.onLocked(asked, chosen.id, now)
+            if (chosen != null && core.mode == Mode.TARGET_LOCKED) {
+                talk.onLocked(asked, chosen.id, now)
+                core.startGuidance(now)
+            }
             // Whoever asked "which one?" (Claude, offline, or this guard), the answer is resolved locally against these options.
             else clarify?.let { (spec, options) -> talk.onClarify(spec, options, now) }
         }

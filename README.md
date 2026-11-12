@@ -1,14 +1,14 @@
-# REACH — smartphone spatial assistant (hackathon MVP)
+# REACH — Assistive Spatial Reach Guidance (Android + Offline AI)
 
-Chest-mounted Samsung Galaxy A15 5G guides a visually impaired user's hand to a
-requested everyday object (bottle, laptop, book, backpack, handbag, cup) using voice → Claude intent → local detection → MediaPipe
-hand tracking → deterministic spatial guidance → TTS.
+> **Quick Setup**: Humans and coding AI assistants should start with **[SETUP_GUIDE.md](SETUP_GUIDE.md)** and **[AGENTS.md](AGENTS.md)** for exact SDK/model setup, wireless debugging (`wireless-debug.ps1`), and verification commands.
 
-**Claude is called once per utterance. The real-time loop is 100% on-device.**
+Smartphone assistive system that guides a blind or low-vision user's hand to a requested everyday object (`bottle` or `laptop`) using hands-free offline **Vosk** voice commands -> **YOLO11n ONNX** (`yolo11n.onnx`, with `efficientdet_lite2_int8.tflite` fallback + rectangular-object rival suppression) -> **MediaPipe** 21-point hand tracking -> deterministic spatial guidance via voice and BLE/phone haptics until the user confirms **"got it"**.
+
+**Real-time detection, hand tracking, spatial guidance, and voice commands run 100% offline on-device** (with optional Claude backend fallback if configured).
 
 ```
 Voice → Claude (backend proxy, once) → target locked
-Camera frame → EfficientDet candidates + HSV beverage color (own thread, ~3 Hz, stale results dropped)
+Camera frame → YOLO11n ONNX (`yolo11n.onnx`) candidates + rectangular rival suppression + HSV beverage color (falls back to `efficientdet_lite2_int8.tflite`)
               → CandidateTracker evidence: seen in ≥ 3 runs, class conflicts, plausible box, low light
             → MediaPipe hands (up to 2) → HandSelector: the user's LEFT and RIGHT hands, each enrolled once by a gesture
             → ReachCore state machine (one lock for every transition and every spoken cue)
@@ -23,6 +23,9 @@ ReachCore → HapticCue (Haptic Language v1.0, one per frame) → HapticPlayer (
 
 1. **Models** (required before first build):
    ```bash
+   # Windows (PowerShell):
+   .\scripts\download_models.ps1
+   # macOS / Linux:
    ./scripts/download_models.sh
    ```
 2. **Backend** (laptop, same Wi-Fi as phone; Python 3.10+):
@@ -51,7 +54,7 @@ ReachCore → HapticCue (Haptic Language v1.0, one per frame) → HapticPlayer (
 |---|---|---|---|
 | **V0 camera** | Launch app | Full-screen ultrawide preview; log `cameras id=2 f=1.4mm fov=75°, id=0 f=3.98mm fov=52°` then `camera bound id=2` | Pick camera 0 in the settings sheet |
 | **V1 hand** | Hold hand ~40 cm in front | Big cyan dot rides your index fingertip, small dots on the other four tips (`adb logcat | grep "REACH   : tips"`) | Increase lighting; drop `MinHandDetectionConfidence` to 0.3 |
-| **V2 grounding** | A bottle/cup/laptop/book on a table, ~50–80 cm | Yellow boxes labeled `#id label score` (drink containers add a color guess) | Check `adb logcat | grep "REACH   : kept"` for what the detector reports (`near=` lists supported objects scoring 0.20–0.35); tune `SupportedClasses` / `ColorClassifier` |
+| **V2 grounding** | A bottle or laptop on a table, ~50–80 cm | Yellow boxes labeled `#id label score` (bottles add a beverage color guess) | Check `adb logcat -d -s REACH:I` for `Yolo11Grounder ready model=yolo11n.onnx`, `groundMs=`, and rival suppression tags (`rej=`) |
 | **V3 depth** | Settings → Camera → "Main camera + depth (ARCore)" | `arcore setup … agree=true`, `arcore tracking=TRACKING depth=yes`; chip "Depth camera on" | Any failure falls back to the ultrawide with a spoken reason; the old DEPTH check screen is still in settings |
 | **V4 spatial** | Lock target (below), "guide me", move hand around | Cues change L/R/U/D without chatter, then "Lined up. Reach forward slowly." | Thresholds: `exitX/enterX/exitY/enterY` in `SpatialEngine` |
 | **V5 Claude** | "Find my Coke" with backend up | TTS: "Found the coke, NN percent sure." Two red cans → clarification question | Kill backend → app auto-switches to offline keyword mode |
@@ -303,11 +306,8 @@ the laptop, but I'm not sure." Repeating the same detection makes it stable, nev
 and featureless (mean luma < 40, std < 10) needs a strong score (≥ 0.6) to be kept at all, and is then never "sure": a
 weak "laptop" on shadow is dropped.
 
-**Supported objects** (`SupportedClasses.DETECTED`, `dataset/categories.json`): bottle, laptop, book, backpack, handbag,
-cup; "bag" means backpack or handbag. Every other COCO class is still detected but never offered; it is tracked only to
-flag class conflicts. Asking for anything else gets a fixed local answer and is never mapped to a supported class (Claude
-is not asked): "I can't recognise a phone yet. I can find a bottle, laptop, book, backpack, handbag, or cup." There is no
-laptop-bag class: "I can't tell a laptop bag from other bags. Ask for a backpack or a handbag…". People and scissors are
+**Supported objects** (`SupportedClasses.DETECTED`, `dataset/categories.json`): `bottle` and `laptop` (focused high-precision targets with zero `pen` flicker and rectangular rival suppression against books, phones, monitors/TVs, desks, and standalone keyboards). Every other COCO class (`tv`, `book`, `cell phone`, `dining table`, `keyboard`, `suitcase`, `vase`, etc.) is inspected by `GrounderFilters` to suppress false positives rather than offered as a target. Asking for anything else gets a fixed local answer and is never mapped to a supported class: "I can't recognise a phone yet. I can find a bottle or a laptop." There is no
+laptop-bag class: "I can't tell a laptop bag from other bags. Wait — I can only find a bottle or a laptop." People and scissors are
 refused outright. A lock is refused when the detection's class is not what was asked for (e.g. Claude picked a handbag for
 "bottle"), when it is weak (< 0.6) in a low-light frame or on a dark box ("It's too dark for me to tell if that's a
 laptop…"), unsettled, or disputed. The locked box keeps the time of the frame it was measured in, so a slow interpretation
@@ -399,10 +399,8 @@ Measured on the Galaxy A15 5G (SM-A156E, Android 16) with `adb shell dumpsys med
 
 - No centimetre accuracy claim. Distance exists only in depth mode, is an estimate (fingertip ~±15%), and has not yet
   been validated against a tape measure on the phone.
-- The detector is EfficientDet-Lite0 (COCO). It can only report the COCO names in its
-  embedded labels, and has **no `can` or `laptop bag` class**: a soda can is only found if the model
-  happens to call it a bottle or cup. Supported categories: `dataset/categories.json` (kept in sync with
-  `SupportedClasses` by a test). Measured on recorded A15 frames: a black laptop seen from behind was never
+- Primary detector is **YOLO11n ONNX** (`yolo11n.onnx` via `onnxruntime-android`, falling back to `efficientdet_lite2_int8.tflite`). Both can report only COCO names (`bottle` / tall `cup` -> `bottle`, and strict COCO `laptop` with anchor-level and box-level suppression against rectangular lookalikes like books, phones, TVs/monitors, desks, and standalone keyboards). Supported categories: `dataset/categories.json` (kept in sync with
+  `SupportedClasses` by a test). Earlier baseline notes from `EfficientDet-Lite0` (Samsung A15): a black laptop seen from behind was never
   called a laptop (30/30 frames; "backpack" at 0.22–0.30), a phone on the floor was missed 30/30, a person
   lying down was "bed" in 16/30 frames, train wheels painted on a wall were "scissors" (0.36–0.46). These are
   model limits; the app's job is to not state them as fact (see Object evidence). Better accuracy needs the

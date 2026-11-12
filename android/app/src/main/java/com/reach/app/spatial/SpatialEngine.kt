@@ -35,6 +35,9 @@ enum class Guidance {
     /** Cues that move the hand. Everything else is a status line and is repeated less often. */
     val directional get() = this == LEFT || this == RIGHT || this == UP || this == DOWN || this == CLOSER ||
         this == NEAR || this == BACK
+
+    /** Active guidance navigation cues (includes arrival-to-reach prompts) exempt from long per-status cooldowns. */
+    val navigationCue get() = directional || this == LINED_UP_2D || this == AT_TARGET
 }
 
 /** The words for a cue, shared by the voice and the screen so both always say the same thing. [hand]: "right hand". */
@@ -80,10 +83,20 @@ data class SpatialInput(
     val tipX: Float?, val tipY: Float?, // index fingertip, null if no hand
     val depth: DepthSample? = null,
     val timestampMs: Long,
-    val occluded: Boolean = false     // the target is not detected while a hand is over its last box
+    val occluded: Boolean = false,    // the target is not detected while a hand is over its last box
+    val handGrasping: Boolean = false // live 2D reach detection: hand is curling/grasping over the target
 )
 
-class SpatialEngine(private val depthReachedValidated: Boolean = DEPTH_REACHED_VALIDATED) {
+class SpatialEngine(
+    private val depthReachedValidated: Boolean = DEPTH_REACHED_VALIDATED,
+    private val confirmMs: Long = CONFIRM_MS,
+    private val alpha: Float = ALPHA,
+    private val handGraceMs: Long = HAND_GRACE_MS,
+    private val firstHandMs: Long = FIRST_HAND_MS,
+    private val allow2dReach: Boolean = false,
+    private val maxExitX: Float = Float.MAX_VALUE,
+    private val maxExitY: Float = Float.MAX_VALUE
+) {
 
     companion object {
         /** Flip only after the fingertip-depth estimate passes the tape-measure check in the README. */
@@ -130,13 +143,14 @@ class SpatialEngine(private val depthReachedValidated: Boolean = DEPTH_REACHED_V
     private var gap = 0f; private var gapValid = false
     private var zone = Zone.FAR
     private var contactSince = -1L
+    private var reach2dSince = -1L
     private var pending = Guidance.NONE; private var pendingSince = 0L
     private var current = Guidance.NONE
 
     fun reset() {
         startedAt = -1L; lastHandMs = -1L; lastTarget = null
         ex = 0f; ey = 0f; smoothed = false; activeX = 0; activeY = 0; aligned = false
-        gapValid = false; zone = Zone.FAR; contactSince = -1L
+        gapValid = false; zone = Zone.FAR; contactSince = -1L; reach2dSince = -1L
         pending = Guidance.NONE; pendingSince = 0L; current = Guidance.NONE
     }
 
@@ -147,7 +161,7 @@ class SpatialEngine(private val depthReachedValidated: Boolean = DEPTH_REACHED_V
         // No fingertip this frame: a held direction must not outlive the hand it was measured from.
         if ((inp.tipX == null || inp.tipY == null) && current.directional) current = Guidance.NONE
         if (raw != pending) { pending = raw; pendingSince = now }
-        if (now - pendingSince >= CONFIRM_MS) current = pending // one-frame glitches never reach the speaker
+        if (now - pendingSince >= confirmMs) current = pending // one-frame glitches never reach the speaker
         return current
     }
 
@@ -156,7 +170,7 @@ class SpatialEngine(private val depthReachedValidated: Boolean = DEPTH_REACHED_V
         val hand = tx != null && ty != null
         aligned = false
         if (hand) {
-            if (lastHandMs < 0 || now - lastHandMs > HAND_GRACE_MS) smoothed = false // hand is back: don't blend old positions
+            if (lastHandMs < 0 || now - lastHandMs > handGraceMs) smoothed = false // hand is back: don't blend old positions
             lastHandMs = now
         }
 
@@ -164,20 +178,42 @@ class SpatialEngine(private val depthReachedValidated: Boolean = DEPTH_REACHED_V
         if (box == null) {
             val last = lastTarget ?: return Guidance.NONE
             // Target gone while a hand is over where it was: the hand is in front of it.
-            return if (inp.occluded || (hand && last.contains(tx!!, ty!!))) Guidance.HAND_COVERS_TARGET else Guidance.TARGET_LOST
+            val covering = inp.occluded || (hand && last.contains(tx!!, ty!!))
+            if (covering && allow2dReach) {
+                if (reach2dSince < 0) reach2dSince = now
+                val hold = now - reach2dSince
+                return when {
+                    hold >= if (inp.handGrasping) 650L else 1200L -> Guidance.REACHED
+                    hold >= 450L -> Guidance.NEAR
+                    else -> Guidance.HAND_COVERS_TARGET
+                }
+            }
+            reach2dSince = -1L
+            return if (covering) Guidance.HAND_COVERS_TARGET else Guidance.TARGET_LOST
         }
         lastTarget = box
 
         if (!hand) {
-            val waited = if (lastHandMs >= 0) now - lastHandMs > HAND_GRACE_MS else now - startedAt > FIRST_HAND_MS
+            reach2dSince = -1L
+            val waited = if (lastHandMs >= 0) now - lastHandMs > handGraceMs else now - startedAt > firstHandMs
             return if (waited) Guidance.HAND_LOST else Guidance.NONE
         }
 
         val rx = box.centerX() - tx!!; val ry = box.centerY() - ty!!
-        if (!smoothed) { ex = rx; ey = ry; smoothed = true } else { ex += ALPHA * (rx - ex); ey += ALPHA * (ry - ey) }
+        if (!smoothed) { ex = rx; ey = ry; smoothed = true } else { ex += alpha * (rx - ex); ey += alpha * (ry - ey) }
         val w = box.right - box.left; val h = box.bottom - box.top
-        activeX = hysteresis(activeX, ex, enterX(w), exitX(w))
-        activeY = hysteresis(activeY, ey, enterY(h), exitY(h))
+        activeX = hysteresis(
+            activeX,
+            ex,
+            enterX(w).coerceAtMost(maxExitX * 1.45f),
+            exitX(w).coerceAtMost(maxExitX)
+        )
+        activeY = hysteresis(
+            activeY,
+            ey,
+            enterY(h).coerceAtMost(maxExitY * 1.45f),
+            exitY(h).coerceAtMost(maxExitY)
+        )
         val dir = when { activeX > 0 -> Guidance.RIGHT; activeX < 0 -> Guidance.LEFT
                          activeY > 0 -> Guidance.DOWN; activeY < 0 -> Guidance.UP; else -> null }
         aligned = dir == null
@@ -185,11 +221,26 @@ class SpatialEngine(private val depthReachedValidated: Boolean = DEPTH_REACHED_V
         if (dir != null || d == null || !d.valid) {
             if (d == null || !d.valid) gapValid = false
             contactSince = -1L // contact needs alignment and valid depth without a break
-            return dir ?: Guidance.LINED_UP_2D
+            if (dir != null) {
+                reach2dSince = -1L
+                return dir
+            }
+            if (allow2dReach) {
+                if (reach2dSince < 0) reach2dSince = now
+                val hold = now - reach2dSince
+                val requiredHold = if (inp.handGrasping || box.contains(tx, ty)) 1250L else 1600L
+                return when {
+                    hold >= requiredHold -> Guidance.REACHED
+                    hold >= 600L -> Guidance.NEAR
+                    else -> Guidance.LINED_UP_2D
+                }
+            }
+            return Guidance.LINED_UP_2D
         }
+        reach2dSince = -1L
 
         val g = d.targetM - d.tipM // > 0: fingertip is still in front of (closer to the camera than) the target
-        gap = if (gapValid) gap + ALPHA * (g - gap) else g
+        gap = if (gapValid) gap + alpha * (g - gap) else g
         if (!gapValid) zone = Zone.of(gap)
         gapValid = true
         if (!zone.holds(gap)) zone = Zone.of(gap)
@@ -224,20 +275,26 @@ class SpatialEngine(private val depthReachedValidated: Boolean = DEPTH_REACHED_V
 class GuidanceThrottle(
     private val minGapMs: Long = 1100,
     private val repeatMs: Long = 2600,
-    private val statusRepeatMs: Long = 6000
+    private val statusRepeatMs: Long = 6000,
+    private val perStatusCooldownMs: Long = 0L
 ) {
     private var lastCue: Guidance = Guidance.NONE
     private var lastSpokenAt = 0L
     private var quietUntil = 0L
+    private val lastSaidByCue = HashMap<Guidance, Long>()
 
     fun filter(cue: Guidance, now: Long): Guidance? {
         if (cue == Guidance.NONE) return null
         val urgent = cue == Guidance.STOP || cue == Guidance.REACHED
         if (!urgent && now < quietUntil) return null
+        if (!urgent && !cue.navigationCue && perStatusCooldownMs > 0L) {
+            val prevAt = lastSaidByCue[cue]
+            if (prevAt != null && now - prevAt < perStatusCooldownMs) return null
+        }
         val gap = now - lastSpokenAt
         val changed = cue != lastCue
         if ((changed && (urgent || gap >= minGapMs)) || (!changed && gap >= if (cue.directional) repeatMs else statusRepeatMs)) {
-            lastCue = cue; lastSpokenAt = now
+            lastCue = cue; lastSpokenAt = now; lastSaidByCue[cue] = now
             return cue
         }
         return null
@@ -246,7 +303,7 @@ class GuidanceThrottle(
     fun quiet(untilMs: Long) { quietUntil = untilMs }
 
     /** Records [cue] as spoken now (it was said directly), so it is not repeated at once. */
-    fun mark(cue: Guidance, now: Long) { lastCue = cue; lastSpokenAt = now }
+    fun mark(cue: Guidance, now: Long) { lastCue = cue; lastSpokenAt = now; lastSaidByCue[cue] = now }
 
     fun reset() { lastCue = Guidance.NONE; lastSpokenAt = 0L; quietUntil = 0L }
 }

@@ -42,10 +42,22 @@ class CameraXSource(
     private var provider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var analysis: ImageAnalysis? = null
+    private var activeCamera: Camera? = null
+    @Volatile var torchOn = false; private set
 
     /** Back cameras, widest first. Empty until [start] has run. Main thread. */
     var cameras: List<CamOption> = emptyList(); private set
     @Volatile var boundId: String? = null; private set
+
+    fun setTorch(on: Boolean): Boolean {
+        val cam = activeCamera ?: return false
+        if (!cam.cameraInfo.hasFlashUnit()) return false
+        torchOn = on
+        cam.cameraControl.enableTorch(on)
+        return true
+    }
+
+    fun toggleTorch(): Boolean = setTorch(!torchOn)
 
     /** Binds [cameraId], or the widest back camera when null / not available. [onReady] runs on the main thread. */
     fun start(cameraId: String? = null, onReady: () -> Unit = {}) {
@@ -83,10 +95,14 @@ class CameraXSource(
         // A missing or busy camera must not crash the app; the screen reports it when no frames arrive.
         try {
             p.unbindAll()
-            p.bindToLifecycle(lifecycleOwner, selector, preview!!, analysis!!)
+            activeCamera = p.bindToLifecycle(lifecycleOwner, selector, preview!!, analysis!!)
+            if (torchOn && activeCamera?.cameraInfo?.hasFlashUnit() == true) {
+                activeCamera?.cameraControl?.enableTorch(true)
+            }
             boundId = id
             Log.i("REACH", "camera bound id=$id")
         } catch (e: Exception) {
+            activeCamera = null
             boundId = null
             Log.e("REACH", "camera bind failed id=$id", e)
         }

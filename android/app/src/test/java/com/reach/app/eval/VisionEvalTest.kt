@@ -71,12 +71,12 @@ class VisionEvalTest {
             "a1.png,s1,s1,0,normal,0,all\na2.png,s1,s1,300,normal,0,all\na3.png,s1,s1,600,normal,0,laptop\n" +
             "d1.png,s2,s2,0,dark,1,laptop|bottle\n")
         val lap = """{"label":"laptop","score":0.7,"box":[0.1,0.1,0.5,0.4]}"""
-        val cup = """{"label":"cup","score":0.6,"box":[0.7,0.7,0.8,0.8]}"""
+        val bot = """{"label":"bottle","score":0.6,"box":[0.7,0.7,0.8,0.8]}"""
         val pred = File(tmp.root, "predictions_test.jsonl")
         pred.writeText(listOf(
             """{"image":"a1.png","det_ms":10,"hand_ms":5,"luma":120,"dets":[$lap],"hands":[]}""",
             """{"image":"a2.png","det_ms":12,"hand_ms":5,"luma":120,"dets":[$lap],"hands":[]}""",
-            """{"image":"a3.png","det_ms":14,"hand_ms":5,"luma":120,"dets":[$lap,$cup],"hands":[]}""",
+            """{"image":"a3.png","det_ms":14,"hand_ms":5,"luma":120,"dets":[$lap,$bot],"hands":[]}""",
             """{"image":"d1.png","det_ms":11,"hand_ms":5,"luma":20,"dets":[{"label":"laptop","score":0.4,"box":[0.2,0.2,0.6,0.6]}],"hands":[]}"""
         ).joinToString("\n"))
         val e = VisionEval(spec(), loadDataset(dir, spec()), loadPredictions(pred))
@@ -86,7 +86,7 @@ class VisionEvalTest {
         val app = e.counts("app").getValue("laptop")
         assertEquals(1, app.tp); assertEquals(2, app.fn); assertEquals(0, app.fp) // confirmed only on its 3rd sighting
         assertEquals(0.0, app.fpPerNegImage, 1e-9)                              // one-frame false laptop never offered
-        assertEquals(0, e.counts("model").getValue("cup").fp)                   // a3: cup not exhaustively labelled -> ignored
+        assertEquals(0, e.counts("model").getValue("bottle").fp)                // a3: bottle not exhaustively labelled -> ignored
         assertEquals(mapOf("laptop" to 3), e.confusion()["laptop"])
         assertEquals(1, e.stability().single().detectedFrames)
         assertEquals(10.0 + 12.0, e.latency().getValue("det_p50") * 2, 1e-9)   // p50 of 10,11,12,14 -> 11
@@ -100,9 +100,9 @@ class VisionEvalTest {
         File(dir, "images.csv").writeText("file_name,session,sequence,frame_ms,lighting,synthetic,labeled\n" +
             (1..3).joinToString("") { "d$it.png,s,s,${it * 300},dark,1,all\n" })
         val lap = """{"label":"laptop","score":0.45,"box":[0.2,0.2,0.6,0.6]"""
-        val cup = """{"label":"cup","score":0.7,"box":[0.65,0.65,0.9,0.9]"""
+        val bot = """{"label":"bottle","score":0.7,"box":[0.65,0.65,0.9,0.9]"""
         fun write(name: String, px: String) = File(tmp.root, name).apply { writeText((1..3).joinToString("\n") {
-            """{"image":"d$it.png","det_ms":10,"hand_ms":5,"luma":20,"dets":[$lap$px},$cup$px}],"hands":[]}""" }) }
+            """{"image":"d$it.png","det_ms":10,"hand_ms":5,"luma":20,"dets":[$lap$px},$bot$px}],"hands":[]}""" }) }
         val frames = loadDataset(dir, spec())
 
         val old = VisionEval(spec(), frames, loadPredictions(write("predictions_old.jsonl", "")))  // no pixels: old files
@@ -110,8 +110,8 @@ class VisionEvalTest {
         val e = VisionEval(spec(), frames, loadPredictions(write("predictions_new.jsonl", ""","luma":12.0,"contrast":3.0""")))
         assertEquals(3, e.counts("model").getValue("laptop").fp)                // the model fires every frame
         assertEquals(0, e.counts("app").getValue("laptop").fp)                  // weak on shadow: dropped
-        assertEquals(1, e.counts("app").getValue("cup").fp)                     // strong: kept once confirmed...
-        assertEquals(0, e.counts("sure").getValue("cup").fp)                    // ...but never named as sure in the dark
+        assertEquals(1, e.counts("app").getValue("bottle").fp)                  // strong: kept once confirmed...
+        assertEquals(0, e.counts("sure").getValue("bottle").fp)                 // ...but never named as sure in the dark
         assertFalse("wine glass" in e.counts("app"))                            // excluded categories are not scored
     }
 }

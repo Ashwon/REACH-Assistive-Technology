@@ -58,23 +58,18 @@ fun rejectReason(score: Float, box: Box, minScore: Float = MIN_SCORE, look: Appe
  * never offered as a target; it is tracked only so a spot the model calls two different things shows as a conflict.
  */
 object SupportedClasses {
-    val DETECTED: Set<String> = linkedSetOf("bottle", "laptop", "book", "backpack", "handbag", "cup")
+    val DETECTED: Set<String> = linkedSetOf("bottle", "laptop")
 
     /** Containers a canned/bottled drink may be reported as. Beverage identity is a color guess only. */
-    val DRINK_CONTAINERS = setOf("bottle", "cup")
+    val DRINK_CONTAINERS = setOf("bottle")
 
     private val BEVERAGES = mapOf("coke" to "coke", "cola" to "coke", "pepsi" to "pepsi",
         "sprite" to "sprite", "monster" to "monster")
 
-    /** Spoken word -> COCO labels it may refer to. Only true synonyms: a different object is never mapped here. */
+    /** Spoken word -> model labels it may refer to. Only true synonyms: a different object is never mapped here. */
     private val ALIASES: Map<String, Set<String>> = mapOf(
         "bottle" to setOf("bottle"), "water bottle" to setOf("bottle"), "flask" to setOf("bottle"),
-        "laptop" to setOf("laptop"), "computer" to setOf("laptop"),
-        "book" to setOf("book"),
-        "backpack" to setOf("backpack"), "rucksack" to setOf("backpack"), "school bag" to setOf("backpack"),
-        "handbag" to setOf("handbag"), "purse" to setOf("handbag"),
-        "bag" to setOf("backpack", "handbag"),
-        "cup" to setOf("cup"), "mug" to setOf("cup")
+        "laptop" to setOf("laptop"), "computer" to setOf("laptop")
     )
 
     /** Objects users ask for that REACH will not find: no model class ("laptop bag", "can"), or a COCO class outside
@@ -83,10 +78,20 @@ object SupportedClasses {
         "laptop bag" to "laptop bag", "laptop case" to "laptop bag", "computer bag" to "laptop bag", "laptop sleeve" to "laptop bag",
         "soda can" to "can", "drink can" to "can", "tin can" to "can",
         "person" to "person", "someone" to "person", "people" to "person", "scissors" to "scissors",
-        "phone" to "phone", "cell phone" to "phone", "mobile" to "phone", "glass" to "glass", "wine glass" to "glass",
-        "vase" to "vase", "bowl" to "bowl", "chair" to "chair", "seat" to "chair", "remote" to "remote",
-        "controller" to "remote", "mouse" to "mouse", "keyboard" to "keyboard", "clock" to "clock",
-        "banana" to "banana", "apple" to "apple", "orange" to "orange", "teddy bear" to "teddy bear", "teddy" to "teddy bear"
+        "glass" to "glass", "wine glass" to "glass",
+        "vase" to "vase", "chair" to "chair", "seat" to "chair",
+        "clock" to "clock",
+        "banana" to "banana", "apple" to "apple", "orange" to "orange", "teddy bear" to "teddy bear", "teddy" to "teddy bear",
+        "cup" to "cup", "mug" to "cup",
+        "book" to "book", "notebook" to "book",
+        "backpack" to "backpack", "rucksack" to "backpack", "school bag" to "backpack",
+        "handbag" to "handbag", "purse" to "handbag", "bag" to "bag",
+        "phone" to "phone", "cell phone" to "phone", "cellphone" to "phone", "mobile" to "phone", "smartphone" to "phone",
+        "remote" to "remote", "controller" to "remote", "remote control" to "remote",
+        "mouse" to "mouse", "computer mouse" to "mouse",
+        "keyboard" to "keyboard",
+        "bowl" to "bowl",
+        "pen" to "pen", "pencil" to "pen", "marker" to "pen"
     )
 
     /** Classes the model has that REACH deliberately never targets: people, and sharp objects for a reaching hand. */
@@ -96,11 +101,11 @@ object SupportedClasses {
     fun cannotFind(spec: TargetSpec) = when (spec.name) {
         "person" -> "I only help find objects, not people."
         "scissors" -> "I don't guide hands to sharp things like scissors."
-        "laptop bag" -> "I can't tell a laptop bag from other bags. Ask for a backpack or a handbag, or say find my bag. $SUPPORTED_LINE"
+        "laptop bag" -> "I can't tell a laptop bag from other bags. $SUPPORTED_LINE"
         else -> "I can't recognise ${if (spec.name[0] in "aeiou") "an" else "a"} ${spec.name} yet. $SUPPORTED_LINE"
     }
 
-    const val SUPPORTED_LINE = "I can find a bottle, laptop, book, backpack, handbag, or cup."
+    const val SUPPORTED_LINE = "I can find a bottle or laptop."
 
     /** Every label some spoken word can resolve to (used by tests to catch typos). */
     val SPEAKABLE_LABELS: Set<String> get() = ALIASES.values.flatten().toSet() + DRINK_CONTAINERS
@@ -198,6 +203,10 @@ class CandidateTracker(private val ttlMs: Long = 1500, private val maxJump: Floa
         return Evidence(t.score, t.hits >= confirmHits, t.rival?.takeIf { nowMs - t.rivalMs <= ttlMs })
     }
 
+    /** True if an active track of [label] is already within [maxJump] of [box] (used for score hysteresis). */
+    fun hasActiveTrackNear(label: String, box: Box, atMs: Long): Boolean =
+        tracks.any { it.label == label && atMs - it.seenMs <= ttlMs && (it.box.distTo(box) <= maxJump || it.box.iou(box) >= 0.25f) }
+
     private companion object { const val CONFLICT_IOU = 0.5f; const val SCORE_ALPHA = 0.5f }
 
     fun assign(dets: List<Det>, nowMs: Long): IntArray {
@@ -248,7 +257,8 @@ class TargetLock(
     private val occludedGraceMs: Long = 8000,  // a hand may cover it this long while reaching
     private val missingGraceMs: Long = 2500,   // not detected and not covered this long -> LOST
     private val reacquireDist: Float = 0.3f,
-    private val minLookSimilarity: Float = 0.5f
+    private val minLookSimilarity: Float = 0.5f,
+    private val allowUnconfirmedReacquire: Boolean = false
 ) {
     var label = ""; private set
     var id = -1; private set
@@ -302,10 +312,16 @@ class TargetLock(
                 (relaxed || kotlin.math.hypot(c.box.centerX() - px, c.box.centerY() - py) < reacquireDist || c.box.iou(last) >= 0.3f) &&
                 (ref == null || c.look == null || ref.similarity(c.look) >= minLookSimilarity)
         }
-        if (passing.size != 1 || same.count { it.confirmed } != 1) return null // two candidates: never a guess
-        id = passing[0].id; reacquisitions++; relaxed = false; vx = 0f; vy = 0f
-        seen(passing[0], nowMs, cands)
-        return passing[0]
+        val chosen = when {
+            passing.size == 1 && same.count { it.confirmed } == 1 -> passing[0]
+            allowUnconfirmedReacquire && same.size == 1 && same[0].conflict == null &&
+                (relaxed || kotlin.math.hypot(same[0].box.centerX() - px, same[0].box.centerY() - py) < reacquireDist || same[0].box.iou(last) >= 0.25f) &&
+                (ref == null || same[0].look == null || ref.similarity(same[0].look!!) >= minLookSimilarity) -> same[0]
+            else -> return null // two candidates: never a guess
+        }
+        id = chosen.id; reacquisitions++; relaxed = false; vx = 0f; vy = 0f
+        seen(chosen, nowMs, cands)
+        return chosen
     }
 
     private fun seen(c: Candidate, nowMs: Long, all: List<Candidate>) {

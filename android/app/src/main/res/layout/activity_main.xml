@@ -229,6 +229,60 @@
                 android:visibility="gone" />
         </LinearLayout>
 
+        <!-- Quick-target bar: 1-tap search for Bottle, Laptop, Pen, plus Flashlight toggle -->
+        <LinearLayout
+            android:id="@+id/quickTargetBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickBottle"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="Bottle"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:cornerRadius="14dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnQuickLaptop"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="Laptop"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:cornerRadius="14dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTorch"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="0.9"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="Light"
+                android:textColor="@color/reach_text"
+                android:textSize="14sp"
+                app:cornerRadius="14dp"
+                app:strokeColor="@color/reach_text_secondary" />
+        </LinearLayout>
+
         <!-- Request: typed or spoken -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/inputLayout"

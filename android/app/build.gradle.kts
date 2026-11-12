@@ -13,6 +13,10 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
+        ndk {
+            // Package ARM ABIs for real phones (excludes x86/x86_64 emulator libs to keep APK size small).
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
         // Backend URL is injected here, NOT an API key. Key lives only on the backend.
         // Override per build: ./gradlew assembleDebug -PbackendUrl=http://<mac-ip>:8000
         val backendUrl = (project.findProperty("backendUrl") as String?) ?: "http://192.168.1.5:8000"
@@ -58,6 +62,12 @@ dependencies {
 
     // V5: backend HTTP
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // V6: Offline silent wake-word & speech command recognition (no system notification beeps)
+    implementation("com.alphacephei:vosk-android:0.3.47")
+
+    // V7: High-accuracy YOLO11n ONNX object detection runtime
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.google.code.gson:gson:2.10.1") // reads COCO annotations / predictions in the evaluator

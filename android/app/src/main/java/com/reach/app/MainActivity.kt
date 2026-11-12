@@ -37,7 +37,7 @@ import com.reach.app.databinding.ActivityMainBinding
 import com.reach.app.databinding.SheetSettingsBinding
 import com.reach.app.grounding.CropEmbedder
 import com.reach.app.grounding.ObjectStore
-import com.reach.app.grounding.LocalDetectorGrounder
+import com.reach.app.grounding.createObjectGrounder
 import com.reach.app.grounding.TrackStatus
 import com.reach.app.haptic.BandSetup
 import com.reach.app.haptic.BleBand
@@ -102,7 +102,8 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             if (granted(Manifest.permission.CAMERA)) startPipeline() else blocker = Blocker.CAMERA_PERMISSION
             updateMicHelper()
-            if (bandPrefs.get(BandSetup.KEY_STATE) == "done") band.connect() // a returning user's band; no-op if already up
+            if (granted(Manifest.permission.RECORD_AUDIO)) startWakeWordListening()
+            if (BleBand.hasPermission(this)) band.connect()
         }
 
     /** The introduction / band setup (every launch, or settings): back here, the camera and microphone are asked for. */
@@ -114,7 +115,10 @@ class MainActivity : AppCompatActivity() {
     private val micLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
             updateMicHelper()
-            if (ok) listen()
+            if (ok) {
+                startWakeWordListening()
+                listen()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -144,6 +148,9 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnPrimary.setOnClickListener { onPrimary() }
         binding.btnStop.setOnClickListener { if (::controller.isInitialized) controller.reset() }
+        binding.btnQuickBottle.setOnClickListener { quickFind("bottle") }
+        binding.btnQuickLaptop.setOnClickListener { quickFind("laptop") }
+        binding.btnTorch.setOnClickListener { toggleTorch() }
         binding.inputLayout.setEndIconOnClickListener { listen() }
         binding.inputText.setOnEditorActionListener { _, actionId, event ->
             val enter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
@@ -166,21 +173,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestStartupPermissions() {
-        val bandPerms = if (bandPrefs.get(BandSetup.KEY_STATE) == "done") BleBand.permissions.toList() else emptyList()
+        val bandPerms = BleBand.permissions.toList()
         permLauncher.launch((listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO) + bandPerms).toTypedArray())
     }
 
-    /** Main thread, on every band state change: live haptics only for the band that passed setup; changes are spoken too. */
+    private fun startWakeWordListening() {
+        if (!granted(Manifest.permission.RECORD_AUDIO)) return
+        voice.startWakeWord(
+            speakerBusy = { speaker.isSpeakingNow },
+            guidingActive = { ::controller.isInitialized && (controller.mode == Mode.GUIDING || controller.mode == Mode.TRACKING_LOST) },
+            onActivated = { runOnUiThread { if (!listening) listen() } },
+            onCommand = { cmd ->
+                runOnUiThread {
+                    if (!isCommand(cmd)) binding.inputText.setText(cmd)
+                    submit(cmd)
+                }
+            }
+        )
+    }
+
+    /** Main thread, on every band state change: live haptics enabled whenever the REACH BLE band is connected. */
     private fun onBandChanged() {
         val addr = band.address.takeIf { band.ready }
-        band.liveEnabled = BandSetup.liveAllowed(bandPrefs, addr)
+        if (addr != null && !BandSetup.liveAllowed(bandPrefs, addr)) {
+            // Ensure BLE vibration motors work immediately when an ESP32 REACH band connects, even if setup was skipped earlier
+            bandPrefs.put(BandSetup.KEY_STATE, "done")
+            bandPrefs.put(BandSetup.KEY_ADDRESS, addr)
+            bandPrefs.put(BandSetup.KEY_LANGUAGE, com.reach.app.haptic.HAPTIC_LANGUAGE_VERSION)
+        }
+        band.liveEnabled = addr != null && BandSetup.liveAllowed(bandPrefs, addr)
         val live = band.connected
         if (live != bandWasLive) speaker.say(getString(if (live) R.string.spoken_band_on else R.string.spoken_band_lost), interrupt = false)
         bandWasLive = live
-        if (addr != null && !live && bandPrefs.get(BandSetup.KEY_STATE) == "done" && addr != warnedUntested) {
-            warnedUntested = addr
-            speaker.say(getString(R.string.spoken_band_untested), interrupt = false)
-        }
         bandStatusView?.let { setIfChanged(it, bandLine()) }
     }
 
@@ -204,10 +228,12 @@ class MainActivity : AppCompatActivity() {
         arcore?.resume()
         heading.start()
         updateMicHelper()
+        if (granted(Manifest.permission.RECORD_AUDIO)) startWakeWordListening()
     }
 
     override fun onPause() {
         super.onPause()
+        voice.stopWakeWord()
         arcore?.pause() // CameraX follows the lifecycle by itself; ARCore must release the camera explicitly
         heading.stop()
     }
@@ -222,7 +248,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun startPipeline() {
         if (::controller.isInitialized) return
-        val grounder = try { LocalDetectorGrounder(this) } catch (e: Exception) { return modelsFailed(e) }
+        val grounder = try { createObjectGrounder(this) } catch (e: Exception) { return modelsFailed(e) }
         val handTracker = try { HandTracker(this) } catch (e: Exception) { grounder.close(); return modelsFailed(e) }
         blocker = null
 
@@ -257,10 +283,8 @@ class MainActivity : AppCompatActivity() {
             updateFov()
             if (saved == CAMERA_DEPTH) selectCamera(CAMERA_DEPTH, announce = false)
         }
-        // Step one, before any search: enrol the user's hands. The introduction is spoken on the first launch only.
-        // The introduction was just shown (BandSetupActivity, every launch); help still replays the full Tutorial.
-        val intro = getString(R.string.spoken_ready) + " "
-        controller.beginHandSetup(intro)
+        // Hands auto-enrol on first sight during guidance; announce ready immediately.
+        speaker.say(getString(R.string.spoken_ready))
     }
 
     /** The help button / settings item: replays the introduction, describing the real current state. */
@@ -354,19 +378,44 @@ class MainActivity : AppCompatActivity() {
         if (text.isEmpty()) listen() else submit(text)
     }
 
+    private fun quickFind(target: String) {
+        val cmd = "find my $target"
+        binding.inputText.setText(cmd)
+        submit(cmd)
+    }
+
+    private fun toggleTorch(forceState: Boolean? = null) {
+        if (!::camera.isInitialized) {
+            speaker.say(getString(R.string.spoken_no_camera))
+            return
+        }
+        val targetState = forceState ?: !camera.torchOn
+        if (camera.setTorch(targetState)) {
+            binding.btnTorch.text = if (camera.torchOn) "Light On" else "Light"
+            speaker.say(if (camera.torchOn) "Flashlight on." else "Flashlight off.")
+        } else {
+            speaker.say("Flashlight isn't available on this camera lens.")
+        }
+    }
+
     private fun submit(text: String) {
         hideKeyboard()
+        val norm = text.lowercase().trim()
+        if (norm in setOf("light on", "turn on light", "torch on", "flashlight on")) {
+            toggleTorch(true); return
+        }
+        if (norm in setOf("light off", "turn off light", "torch off", "flashlight off")) {
+            toggleTorch(false); return
+        }
+        if (norm in setOf("torch", "flashlight")) {
+            toggleTorch(null); return
+        }
         if (!::controller.isInitialized) { speaker.say(getString(R.string.spoken_no_camera)); return }
         controller.onUtterance(text)
     }
 
     private fun listen() {
         if (!granted(Manifest.permission.RECORD_AUDIO)) { micLauncher.launch(Manifest.permission.RECORD_AUDIO); return }
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            binding.inputLayout.helperText = getString(R.string.mic_unavailable_helper)
-            speaker.say(getString(R.string.mic_unavailable_helper))
-            return
-        }
         if (listening) return
         listening = true
         updateMicHelper()
@@ -501,11 +550,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var statusPendingText = ""
+    private var statusPendingSince = 0L
+    private var lastPhoneCue: com.reach.app.haptic.HapticCue? = null
+    private var lastPhonePulseAt = 0L
+
     private fun render() {
         val cam = cameraState()
         val s = snapshot.takeIf { cam == CameraState.LIVE } // a stale snapshot never drives the screen
+        val now = SystemClock.uptimeMillis()
 
-        val status = ReachStatus.status(s, cam)
+        val rawStatus = ReachStatus.status(s, cam)
+        val status = if (rawStatus.text == binding.statusText.text.toString() || rawStatus.text == "Reached" || rawStatus.text == "Searching") {
+            statusPendingText = rawStatus.text; statusPendingSince = now
+            rawStatus
+        } else {
+            if (rawStatus.text != statusPendingText) { statusPendingText = rawStatus.text; statusPendingSince = now }
+            if (now - statusPendingSince >= 450L) rawStatus else Line(binding.statusText.text.toString().ifEmpty { rawStatus.text }, rawStatus.tone)
+        }
         setIfChanged(binding.statusText, status.text)
         binding.statusPill.contentDescription = "Status: ${status.text}"
         binding.statusDot.backgroundTintList = android.content.res.ColorStateList.valueOf(color(status.tone))
@@ -515,6 +577,7 @@ class MainActivity : AppCompatActivity() {
         chip(binding.chipDistance, ReachStatus.distance(s))
         chip(binding.chipTurn, ReachStatus.turn(s))
         chip(binding.chipHaptic, ReachStatus.haptics(s, bandOff()).takeIf { s != null })
+        if (!band.connected) pulsePhoneFallback(s?.band, now)
         if (::controller.isInitialized) diagView?.let { setIfChanged(it, diagnostics()) }
 
         val g = ReachStatus.guidance(s, cam)
@@ -632,6 +695,24 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    private fun pulsePhoneFallback(cue: com.reach.app.haptic.HapticCue?, now: Long) {
+        if (cue == null) { lastPhoneCue = null; return }
+        val changed = cue != lastPhoneCue
+        if (!changed && (cue.oneShot || now - lastPhonePulseAt < cue.repeatMs.coerceAtLeast(900L))) return
+        lastPhoneCue = cue; lastPhonePulseAt = now
+        runCatching {
+            @Suppress("DEPRECATION")
+            val vib = getSystemService(android.os.Vibrator::class.java) ?: return
+            if (!vib.hasVibrator()) return
+            val ms = when (cue) {
+                com.reach.app.haptic.HapticCue.REACHED -> 220L
+                com.reach.app.haptic.HapticCue.NEAR_CLOSE, com.reach.app.haptic.HapticCue.NEAR_VERY_CLOSE -> 45L
+                else -> 65L
+            }
+            vib.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+        }
+    }
+
     private fun hideKeyboard() {
         binding.inputText.clearFocus()
         getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(binding.inputText.windowToken, 0)
@@ -650,7 +731,7 @@ class MainActivity : AppCompatActivity() {
         // Debug builds only: record frames / replay recorded frames through the models (see DebugFrames).
         intent.getIntExtra("capture", 0).takeIf { it > 0 }?.let { debugFrames?.startCapture(it) }
         intent.getStringExtra("replay")?.let {
-            debugFrames?.replay(it, intent.getStringExtra("model") ?: "efficientdet_lite0.tflite", intent.getIntExtra("loops", 1))
+            debugFrames?.replay(it, intent.getStringExtra("model") ?: "efficientdet_lite2_int8.tflite", intent.getIntExtra("loops", 1))
         }
     }
 

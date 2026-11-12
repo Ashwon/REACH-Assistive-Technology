@@ -553,15 +553,15 @@ class ReachCoreTest {
 
         val a = core.beginSearch(); val b = core.beginSearch()
         assertFalse(core.onSearchResult(a, bottle, "bottle", 0.9, false, "", t))
-        assertTrue(core.onSearchResult(b, cand(2, "cup"), "cup", 0.9, false, "", t))
+        assertTrue(core.onSearchResult(b, cand(2, "laptop"), "laptop", 0.9, false, "", t))
         assertEquals(Mode.TARGET_LOCKED, core.mode); assertEquals(2, core.lock.id)
     }
 
     @Test fun staleDetectionFromBeforeANewLockIsNotApplied() {
         val tokA = core.beginSearch(); core.onSearchResult(tokA, bottle, "bottle", 0.9, true, "", 0)
         val oldSession = core.session
-        val tokB = core.beginSearch(); core.onSearchResult(tokB, cand(2, "cup"), "cup", 0.9, true, "", 0)
-        val moved = Candidate(2, "cup", "unknown", Box(0.05f, 0.05f, 0.15f, 0.15f), 0.9f, null)
+        val tokB = core.beginSearch(); core.onSearchResult(tokB, cand(2, "laptop"), "laptop", 0.9, true, "", 0)
+        val moved = Candidate(2, "laptop", "unknown", Box(0.05f, 0.05f, 0.15f, 0.15f), 0.9f, null)
         core.onDetections(listOf(moved), 100, oldSession)
         assertEquals(0.5f, core.lock.box!!.centerX(), 1e-6f)
     }
@@ -583,7 +583,7 @@ class ReachCoreTest {
         assertTrue(spoken.last(), "only saw" in spoken.last())
         assertFalse(lock(cand(2, "bottle", conflict = "handbag"), "bottle"))          // bottle or bag? say so
         assertEquals("I can't tell if that's a bottle or a handbag. Move the camera a little and ask again.", spoken.last())
-        assertTrue(lock(cand(3, "bottle", conflict = "cup"), "coke"))                 // any drink container is a coke candidate
+        assertTrue(lock(cand(3, "bottle", conflict = "bottle"), "coke"))              // drink container is a coke candidate
         assertTrue(lock(cand(4, "laptop", score = 0.45f), "laptop"))                  // settled but weak: hedged
         assertTrue(spoken.last(), spoken.last().startsWith("I might see the laptop, but I'm not sure.") && "percent" !in spoken.last())
         assertTrue(lock(cand(5, "laptop", score = 0.9f, lowLight = true), "laptop"))  // dark scene: never certain
@@ -602,10 +602,11 @@ class ReachCoreTest {
         core.onSearchResult(core.beginSearch(), cand(2, "laptop"), "laptop bag", 0.9, false, "", t)
         assertTrue(spoken.last(), spoken.last().startsWith("I can't tell a laptop bag from other bags."))
         assertEquals(Mode.IDLE, core.mode); assertFalse(core.lock.active)
-        core.onSearchResult(core.beginSearch(), cand(3, "cup"), "phone", 0.9, false, "", t)
-        assertTrue(spoken.last(), spoken.last().startsWith("I can't recognise a phone yet."))
+        core.onSearchResult(core.beginSearch(), cand(3, "cup"), "clock", 0.9, false, "", t)
+        assertTrue(spoken.last(), spoken.last().startsWith("I can't recognise a clock yet."))
         assertFalse(core.lock.active)
-        assertTrue(core.lockOn(cand(4, "backpack"), "bag", 0.9, false, t)) // "bag" names both bag classes
+        assertTrue(core.lockOn(cand(4, "laptop"), "computer", 0.9, false, t))
+        assertTrue(core.lockOn(cand(5, "bottle"), "water bottle", 0.9, false, t))
     }
 
     /** Before: a weak "laptop" in a dark frame was locked (hedged) and guided to. */

@@ -59,7 +59,9 @@ class HandSelector(private val cfg: Config = Config()) {
         val handednessMin: Float = 0.8f,        // a label counts only at this confidence
         val maxPredictMs: Long = 300L,          // motion is extrapolated at most this far
         val returnMinRatio: Float = 0.6f, val returnMaxRatio: Float = 1.6f, // new-track return: size vs last known
-        val returnConfirmMs: Long = 300L        // new-track return: followed this long before it is adopted
+        val returnConfirmMs: Long = 300L,       // new-track return: followed this long before it is adopted
+        val autoEnroll: Boolean = false,        // live single-hand mode: auto-enrol any visible hand without fist ritual
+        val holdMissingMs: Long = 0L            // keep last hand pose during 1-2 frame motion blur
     )
 
     companion object {
@@ -149,8 +151,44 @@ class HandSelector(private val cfg: Config = Config()) {
         }
         enrolling?.let { status = choose(it, seen, nowMs) }
         for (s in slots.values) updateSlot(s, seen, nowMs)
+        if (cfg.autoEnroll) {
+            val validSeen = seen.filter { it.hand.handSize >= 0.04f }.sortedBy { it.hand.palmX }
+            if (validSeen.size >= 2) {
+                val leftTrack = validSeen.first()
+                val rightTrack = validSeen.last()
+                val lSlot = slot(Side.LEFT); val rSlot = slot(Side.RIGHT)
+                lSlot.trackId = leftTrack.id; lSlot.state = SlotState.TRACKED; lSlot.reason = ""; lSlot.via = "auto2"
+                lSlot.label = leftTrack.hand.handedness?.takeIf { confident(leftTrack.hand) }
+                lSlot.size = leftTrack.hand.handSize; lSlot.last = leftTrack.hand; lSlot.seenMs = nowMs
+                rSlot.trackId = rightTrack.id; rSlot.state = SlotState.TRACKED; rSlot.reason = ""; rSlot.via = "auto2"
+                rSlot.label = rightTrack.hand.handedness?.takeIf { confident(rightTrack.hand) }
+                rSlot.size = rightTrack.hand.handSize; rSlot.last = rightTrack.hand; rSlot.seenMs = nowMs
+                if (enrolling != null) { enrolled = enrolling; enrolling = null; retry = null; status = Status.NONE }
+            } else if (validSeen.size == 1) {
+                val t = validSeen[0]
+                val alreadyTracked = slots.values.firstOrNull { it.state == SlotState.TRACKED && it.trackId == t.id }
+                val targetSide = alreadyTracked?.side ?: enrolling ?: Side.RIGHT
+                val s = slot(targetSide)
+                val wasEnrolling = enrolling != null
+                s.trackId = t.id; s.state = SlotState.TRACKED; s.reason = ""; s.via = if (wasEnrolling) "enrolled" else "auto1"
+                s.label = t.hand.handedness?.takeIf { confident(t.hand) }
+                s.size = t.hand.handSize; s.last = t.hand; s.seenMs = nowMs
+                if (wasEnrolling) { enrolling = null; retry = null; status = Status.NONE; enrolled = targetSide }
+                // Clear the other slot if it hasn't been seen recently so UI accurately reflects 1 hand on screen
+                val otherSlot = slot(targetSide.other)
+                if (otherSlot.state != SlotState.NOT_ENROLLED && nowMs - otherSlot.seenMs > 1200L) {
+                    otherSlot.state = SlotState.NOT_ENROLLED; otherSlot.trackId = -1; otherSlot.last = null; otherSlot.reason = ""
+                }
+            }
+        }
         visible.clear()
-        for (s in slots.values) if (s.state == SlotState.TRACKED) track(s.trackId)?.takeIf { it in seen }?.let { visible[s.side] = it.hand }
+        for (s in slots.values) {
+            if (s.state == SlotState.TRACKED) {
+                track(s.trackId)?.takeIf { it in seen }?.let { visible[s.side] = it.hand }
+            } else if (s.state == SlotState.MISSING && cfg.holdMissingMs > 0L && nowMs - s.seenMs <= cfg.holdMissingMs) {
+                s.last?.let { visible[s.side] = it }
+            }
+        }
         others = seen.filter { t -> visible.values.none { it === t.hand } }.map { it.hand }
     }
 
@@ -164,13 +202,13 @@ class HandSelector(private val cfg: Config = Config()) {
         val t = track(s.trackId)
         if (t != null && t in seen) {
             s.last = t.hand; s.seenMs = nowMs; s.size += 0.2f * (t.hand.handSize - s.size)
-            val near = seen.firstOrNull { it !== t && tooClose(t.hand, it.hand) }
+            val near = if (cfg.autoEnroll) null else seen.firstOrNull { it !== t && tooClose(t.hand, it.hand) }
             if (near != null) { // either track could now be following the other hand
                 s.state = SlotState.UNCERTAIN; s.reason = "another hand is too close"; s.closeId = near.id
                 if (confident(near.hand)) s.closeLabel = near.hand.handedness
                 return
             }
-            if (s.state == SlotState.UNCERTAIN) {
+            if (s.state == SlotState.UNCERTAIN && !cfg.autoEnroll) {
                 // Separated again. Safe only if the two hands were told apart by their labels: ours is still labelled
                 // like the enrolled hand and the one that came close was confidently labelled the other way.
                 if (labelIs(t.hand, s.label) && s.closeLabel != null && s.closeLabel != s.label) s.via = "labels after crossing"
@@ -179,7 +217,7 @@ class HandSelector(private val cfg: Config = Config()) {
             s.state = SlotState.TRACKED; s.reason = ""; s.closeId = -1; s.closeLabel = null
             return
         }
-        if (s.state == SlotState.UNCERTAIN) return needsRecovery(s, "it left view while another hand was close")
+        if (s.state == SlotState.UNCERTAIN && !cfg.autoEnroll) return needsRecovery(s, "it left view while another hand was close")
         if (s.trackId >= 0 && t == null) s.trackId = -1
         s.state = SlotState.MISSING
         if (nowMs - s.seenMs > cfg.graceMs) return needsRecovery(s, "it was out of view too long")
@@ -188,6 +226,14 @@ class HandSelector(private val cfg: Config = Config()) {
 
     /** Re-adopts a NEW track as [s]'s hand when it is the only hand that can be it (see the class comment). */
     private fun tryReturn(s: Slot, seen: Set<Track>, nowMs: Long) {
+        if (cfg.autoEnroll) {
+            val candidate = seen.filter { slotOf(it) == null && it.hand.handSize >= 0.04f }.maxByOrNull { it.hand.handSize }
+            if (candidate != null) {
+                s.trackId = candidate.id; s.state = SlotState.TRACKED; s.via = "return"; s.reason = ""
+                s.last = candidate.hand; s.seenMs = nowMs; s.size = candidate.hand.handSize
+            }
+            return
+        }
         val otherLabel = slot(s.side.other).label
         if (s.label == null || s.label == otherLabel) return // no label evidence that tells the user's hands apart
         val passing = seen.filter { t ->
@@ -217,7 +263,7 @@ class HandSelector(private val cfg: Config = Config()) {
         val (px, py) = predicted(t, nowMs)
         val d = hypot(h.palmX - px, h.palmY - py)
         val ratio = h.handSize / t.hand.handSize
-        val sidesDisagree = h.handedness != null && t.hand.handedness != null && h.handedness != t.hand.handedness &&
+        val sidesDisagree = !cfg.autoEnroll && h.handedness != null && t.hand.handedness != null && h.handedness != t.hand.handedness &&
             h.score >= cfg.handednessMin && t.hand.score >= cfg.handednessMin
         return d.takeIf { d <= gate && ratio in minR..maxR && !sidesDisagree }
     }
@@ -261,10 +307,14 @@ class HandSelector(private val cfg: Config = Config()) {
                 fit(sel, hands[i], nowMs, cfg.reacquireGate, cfg.reacquireMinRatio, cfg.reacquireMaxRatio)
                     ?.takeIf { hands[i].score >= cfg.minReacquireScore }?.let { i to it }
             }
-            val contested = fits.singleOrNull()?.let { (i, d) ->
+            val contested = !cfg.autoEnroll && (fits.singleOrNull()?.let { (i, d) ->
                 gone.any { it !== sel && (fit(it, hands[i], nowMs, cfg.gate, cfg.minRatio, cfg.maxRatio) ?: Float.MAX_VALUE) < d }
-            } ?: false
+            } ?: false)
             when {
+                cfg.autoEnroll && fits.isNotEmpty() -> {
+                    val best = fits.minByOrNull { it.second }!!
+                    val i = best.first; used[i] = true; seen.add(sel); claim(sel, hands[i], nowMs); s.via = "continuity"
+                }
                 fits.size > 1 || contested -> needsRecovery(s, "two hands appeared where your ${s.side.word} hand was")
                 fits.size == 1 -> { val i = fits[0].first; used[i] = true; seen.add(sel); claim(sel, hands[i], nowMs); s.via = "continuity" }
             }
@@ -282,6 +332,17 @@ class HandSelector(private val cfg: Config = Config()) {
         if (nowMs - maxOf(selectingSince, windowFrom) > SELECT_WINDOW_MS) { enrolling = null; return Status.NONE } // nobody answered in time
         val other = slot(side.other)
         val candidates = seen.filter { it.id != other.trackId } // the other enrolled hand is not an answer
+        if (cfg.autoEnroll) {
+            val t = candidates.filter { it.hand.handSize >= 0.04f }.maxByOrNull { it.hand.handSize }
+            if (t != null) {
+                val s = slot(side)
+                s.trackId = t.id; s.state = SlotState.TRACKED; s.reason = ""; s.via = "enrolled"
+                s.label = t.hand.handedness?.takeIf { confident(t.hand) }
+                s.size = t.hand.handSize; s.last = t.hand; s.seenMs = nowMs
+                enrolling = null; retry = null; enrolled = side
+                return Status.NONE
+            }
+        }
         val usable = candidates.filter { it.hand.handSize >= MIN_SIZE }
         val responded = usable.filter {
             it.openMs >= selectingSince && it.fistSince >= 0 && it.fistSince - it.openMs <= OPEN_BEFORE_MS &&

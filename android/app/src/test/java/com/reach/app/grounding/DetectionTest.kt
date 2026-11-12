@@ -36,15 +36,15 @@ class ClassMappingTest {
     }
 
     @Test fun theSupportedSetIsExactlyTheSixEverydayObjects() =
-        assertEquals(setOf("bottle", "laptop", "book", "backpack", "handbag", "cup"), SupportedClasses.DETECTED)
+        assertEquals(
+            setOf("bottle", "laptop"),
+            SupportedClasses.DETECTED
+        )
 
     @Test fun resolvesSpokenObjects() {
         assertEquals(setOf("laptop"), SupportedClasses.resolve("Where is my laptop?")!!.labels)
         assertEquals(setOf("laptop"), SupportedClasses.resolve("find my computer")!!.labels)
-        assertEquals(setOf("cup"), SupportedClasses.resolve("my mug")!!.labels)
-        assertEquals(setOf("backpack"), SupportedClasses.resolve("find my rucksack")!!.labels)
-        assertEquals(setOf("handbag"), SupportedClasses.resolve("where's my purse")!!.labels)
-        assertEquals(setOf("book"), SupportedClasses.resolve("find the book")!!.labels)
+        assertEquals(setOf("bottle"), SupportedClasses.resolve("find my bottle")!!.labels)
         val coke = SupportedClasses.resolve("find my Coke")!!
         assertEquals("coke", coke.beverage); assertEquals(SupportedClasses.DRINK_CONTAINERS, coke.labels)
         assertEquals("coke", SupportedClasses.resolve("a cola please")!!.beverage)
@@ -58,8 +58,7 @@ class ClassMappingTest {
     }
 
     @Test fun theDemoCategoriesAreSupportedAndTheBagWithoutAClassIsNot() {
-        for (w in listOf("water bottle", "laptop", "book", "backpack", "cup")) assertTrue(w, SupportedClasses.resolve("find my $w")!!.supported)
-        assertEquals(setOf("backpack", "handbag"), SupportedClasses.resolve("the other bag")!!.labels)
+        for (w in listOf("water bottle", "laptop")) assertTrue(w, SupportedClasses.resolve("find my $w")!!.supported)
         assertFalse(SupportedClasses.resolve("find my laptop bag")!!.supported)
     }
 
@@ -68,14 +67,14 @@ class ClassMappingTest {
         assertEquals("laptop", SupportedClasses.resolve("find the laptop next to my bottle")!!.name)
         assertEquals("bottle", SupportedClasses.resolve("find the bottle next to my laptop")!!.name)
         assertFalse(SupportedClasses.resolve("find my laptop bag")!!.supported)       // the longer phrase at the same place
-        assertEquals(setOf("bottle"), SupportedClasses.resolve("my water bottle by the cup")!!.labels)
+        assertEquals(setOf("bottle"), SupportedClasses.resolve("my water bottle by the laptop")!!.labels)
         assertEquals("coke", SupportedClasses.resolve("the coke next to the laptop")!!.beverage)
     }
 
     @Test fun neighbourWordsAndTheNearestOption() {
         val (before, anchor) = nearAnchor("the one next to my bottle")!!
         assertEquals(" the one", before); assertEquals("bottle", anchor.name)
-        assertEquals("cup", nearAnchor("the laptop closest to the cup")!!.second.name)
+        assertEquals("bottle", nearAnchor("the laptop closest to the bottle")!!.second.name)
         assertNull(nearAnchor("the one on the left")); assertNull(nearAnchor("the one next to it"))
         val a = cand(1, "laptop", 0.2f); val b = cand(2, "laptop", 0.7f)
         assertEquals(2, pickNear(listOf(a, b), cand(3, "bottle", 0.9f))!!.id)
@@ -88,17 +87,17 @@ class ClassMappingTest {
         assertNull(SupportedClasses.resolve("find my giraffe"))   // never asked for: the interpreter answers
     }
 
-    /** Before: phone, chair, glass... were targets, and "glass" silently meant "wine glass or cup". */
+    /** Out of scope objects get a clear answer and no labels. */
     @Test fun outOfScopeObjectsGetAClearAnswerAndNoLabels() {
-        for (w in listOf("phone", "cell phone", "chair", "glass", "wine glass", "vase", "bowl", "remote", "keyboard",
-                         "mouse", "clock", "apple", "teddy bear", "soda can", "laptop bag")) {
+        for (w in listOf("chair", "glass", "wine glass", "vase",
+                         "clock", "apple", "teddy bear", "soda can", "laptop bag")) {
             val spec = SupportedClasses.resolve("find my $w")!!
             assertFalse(w, spec.supported); assertTrue(w, spec.labels.isEmpty())
             val r = ClaudeClient().interpretLocal("find my $w", listOf(cand(1, "cup", 0.5f), cand(2, "laptop", 0.2f)))
             assertEquals(w, -1, r.candidateId); assertTrue(r.needsClarification)
             assertTrue(r.question, r.question.endsWith(SupportedClasses.SUPPORTED_LINE))
         }
-        assertEquals("I can't recognise a phone yet. ${SupportedClasses.SUPPORTED_LINE}", ClaudeClient().interpretLocal("where is my phone", emptyList()).question)
+        assertEquals("I can't recognise a chair yet. ${SupportedClasses.SUPPORTED_LINE}", ClaudeClient().interpretLocal("where is my chair", emptyList()).question)
         assertEquals("I can't recognise an apple yet. ${SupportedClasses.SUPPORTED_LINE}", ClaudeClient().interpretLocal("an apple", emptyList()).question)
         assertTrue(ClaudeClient().interpretLocal("find my laptop bag", emptyList()).question.startsWith("I can't tell a laptop bag from other bags."))
     }
@@ -142,23 +141,23 @@ class BoxTest {
 }
 
 class TargetPickTest {
-    private val cups = SupportedClasses.resolve("cup")!!
+    private val laptops = SupportedClasses.resolve("laptop")!!
 
     @Test fun noneOneAmbiguous() {
-        assertEquals(TargetPick.None, pickTarget(cups, listOf(cand(1, "bottle", 0.5f))))
-        assertEquals(1, ((pickTarget(cups, listOf(cand(1, "cup", 0.5f), cand(2, "bottle", 0.2f)))) as TargetPick.One).c.id)
-        val amb = pickTarget(cups, listOf(cand(1, "cup", 0.8f), cand(2, "cup", 0.2f))) as TargetPick.Ambiguous
+        assertEquals(TargetPick.None, pickTarget(laptops, listOf(cand(1, "bottle", 0.5f))))
+        assertEquals(1, ((pickTarget(laptops, listOf(cand(1, "laptop", 0.5f), cand(2, "bottle", 0.2f)))) as TargetPick.One).c.id)
+        val amb = pickTarget(laptops, listOf(cand(1, "laptop", 0.8f), cand(2, "laptop", 0.2f))) as TargetPick.Ambiguous
         assertEquals(listOf(2, 1), amb.options.map { it.id }) // ordered left to right
     }
 
     @Test fun beverageSpecRequiresMatchingColorGuess() {
         val coke = SupportedClasses.resolve("coke")!!
-        val cs = listOf(cand(1, "bottle", 0.3f, bev = "pepsi"), cand(2, "cup", 0.7f, bev = "coke"))
+        val cs = listOf(cand(1, "bottle", 0.3f, bev = "pepsi"), cand(2, "bottle", 0.7f, bev = "coke"))
         assertEquals(2, (pickTarget(coke, cs) as TargetPick.One).c.id)
     }
 
     @Test fun positionAnswers() {
-        val opts = listOf(cand(1, "cup", 0.2f), cand(2, "cup", 0.5f), cand(3, "cup", 0.8f))
+        val opts = listOf(cand(1, "laptop", 0.2f), cand(2, "laptop", 0.5f), cand(3, "laptop", 0.8f))
         assertEquals(1, pickByPosition(opts, "the left one")!!.id)
         assertEquals(3, pickByPosition(opts, "Right.")!!.id)
         assertEquals(2, pickByPosition(opts, "middle")!!.id)
@@ -167,12 +166,12 @@ class TargetPickTest {
 
     @Test fun offlineFallbackAsksInsteadOfGuessing() {
         val client = ClaudeClient()
-        val two = listOf(cand(1, "cup", 0.2f), cand(2, "cup", 0.8f))
-        val r = client.interpretLocal("find my cup", two)
+        val two = listOf(cand(1, "laptop", 0.2f), cand(2, "laptop", 0.8f))
+        val r = client.interpretLocal("find my laptop", two)
         assertTrue(r.needsClarification); assertEquals(-1, r.candidateId)
-        assertEquals("I can help. I see two cups. Do you want the one on the left or the right?", r.question)
+        assertEquals("I can help. I see two laptops. Do you want the one on the left or the right?", r.question)
 
-        val one = client.interpretLocal("find my cup", listOf(cand(7, "cup", 0.4f, score = 0.62f)))
+        val one = client.interpretLocal("find my laptop", listOf(cand(7, "laptop", 0.4f, score = 0.62f)))
         assertEquals(7, one.candidateId); assertEquals(0.62, one.confidence, 1e-6); assertFalse(one.needsClarification)
 
         assertTrue(client.interpretLocal("find my bottle", two).needsClarification) // not visible
@@ -262,17 +261,17 @@ class CandidateTrackerTest {
 
 class BottleAndBagTest {
     private val bottle = cand(1, "bottle", 0.40f)
-    private val bag = cand(2, "handbag", 0.60f)
+    private val laptop = cand(2, "laptop", 0.60f)
 
     @Test fun askingForOneNeverResolvesToTheOther() {
-        assertEquals(1, (pickTarget(SupportedClasses.resolve("find my bottle")!!, listOf(bag, bottle)) as TargetPick.One).c.id)
-        assertEquals(2, (pickTarget(SupportedClasses.resolve("where is my bag")!!, listOf(bottle, bag)) as TargetPick.One).c.id)
-        assertEquals(TargetPick.None, pickTarget(SupportedClasses.resolve("find my bottle")!!, listOf(bag)))
+        assertEquals(1, (pickTarget(SupportedClasses.resolve("find my bottle")!!, listOf(laptop, bottle)) as TargetPick.One).c.id)
+        assertEquals(2, (pickTarget(SupportedClasses.resolve("where is my laptop")!!, listOf(bottle, laptop)) as TargetPick.One).c.id)
+        assertEquals(TargetPick.None, pickTarget(SupportedClasses.resolve("find my bottle")!!, listOf(laptop)))
     }
 
     @Test fun lockedBottleNeverSwitchesToTheBagWhenTheBottleDisappears() {
         val l = TargetLock(); l.lock(bottle, 0)
-        assertNull(l.update(listOf(bag), 2000)); assertNull(l.update(listOf(cand(3, "handbag", 0.42f)), 3000))
+        assertNull(l.update(listOf(laptop), 2000)); assertNull(l.update(listOf(cand(3, "laptop", 0.42f)), 3000))
         assertEquals(TrackStatus.LOST, l.status); assertEquals(1, l.id); assertEquals("bottle", l.label)
     }
 }

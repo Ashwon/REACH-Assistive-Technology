@@ -93,7 +93,8 @@ class Conversation(private val ttlMs: Long = TASK_TTL_MS, private val memory: Ob
         }
         when {
             has("cancel", "never mind", "nevermind", "forget it", "reset", "stop guidance", "stop") -> { task = null; return Act.Cancel }
-            has("got it", "have it", "holding it", "touching it", "found it", "reached") -> return Act.Done
+            has("got it", "have it", "holding it", "touching it", "touched it", "found it", "reached", "reached it", "grabbed it", "picked it up", "done") -> return Act.Done
+            lockedId >= 0 && canGuide && task?.options.isNullOrEmpty() && has("yes", "yeah", "yep") -> return Act.Done
             "hand" in w || "hands" in w -> {
                 if (has("set", "setup", "learn", "enrol", "enroll", "register", "recognise", "recognize", "confirm"))
                     return Act.Hands(side)
@@ -102,6 +103,8 @@ class Conversation(private val ttlMs: Long = TASK_TTL_MS, private val memory: Ob
             has("where was it", "where is it", "where did it go", "which way", "turned around", "i turned", "turned away") -> return Act.Where
             // "where is the bottle?" while that bottle is locked: where it is, not a new search that drops it
             "where" in w && lockedId >= 0 && (spec == null || spec.name == task?.spec?.name) -> return Act.Where
+            has("what do you see", "what can you see", "what is in front", "scan", "look around") && spec == null ->
+                return Act.Say(describeScene(visible))
             has("help", "tutorial", "how does this work", "what can you do", "explain") && spec == null -> return Act.Help
         }
 
@@ -195,6 +198,17 @@ class Conversation(private val ttlMs: Long = TASK_TTL_MS, private val memory: Ob
     private fun ask(task: Task, visible: List<Candidate>): String {
         val n = visible.count { it.id in task.options }.takeIf { it >= 2 } ?: task.options.size
         return clarifyQuestion(task.spec, maxOf(n, 2))
+    }
+
+    private fun describeScene(visible: List<Candidate>): String {
+        val items = visible.filter { it.confirmed }.sortedBy { it.box.centerX() }
+        if (items.isEmpty()) return "I don't see a bottle or laptop right now. Slowly pan the camera."
+        val parts = items.map { "a ${it.label} ${it.box.sideWord()}" }
+        return when (parts.size) {
+            1 -> "I see ${parts[0]}."
+            2 -> "I see ${parts[0]} and ${parts[1]}."
+            else -> "I see ${parts.dropLast(1).joinToString(", ")}, and ${parts.last()}."
+        }
     }
 
     companion object { const val TASK_TTL_MS = 5 * 60_000L }

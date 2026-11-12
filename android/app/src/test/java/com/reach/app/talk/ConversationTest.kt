@@ -55,11 +55,11 @@ class ConversationTest {
     }
 
     @Test fun theOtherBagIsANewCategoryExcludingTheCurrentTarget() {
-        val bags = listOf(obj(3, "backpack", 0.3f), obj(4, "handbag", 0.7f), blueLeft)
-        assertEquals(Act.Search("find my backpack"), say("find my backpack", bags))
-        talk.onLocked(SupportedClasses.resolve("backpack"), 3, t)
-        val a = say("actually the other bag", bags, locked = 3) as Act.Lock
-        assertEquals(4, a.c.id); assertEquals("bag", a.name)
+        val laptops = listOf(obj(3, "laptop", 0.3f), obj(4, "laptop", 0.7f), blueLeft)
+        assertEquals(Act.Search("find my laptop"), say("find my laptop", listOf(obj(3, "laptop", 0.3f), blueLeft)))
+        talk.onLocked(SupportedClasses.resolve("laptop"), 3, t)
+        val a = say("actually the other laptop", laptops, locked = 3) as Act.Lock
+        assertEquals(4, a.c.id); assertEquals("laptop", a.name)
     }
 
     @Test fun thatBottleKeepsTheCurrentTarget() {
@@ -74,7 +74,7 @@ class ConversationTest {
         assertEquals(Act.Search("find the bottle"), say("try again", canGuide = false)) // nothing locked: look again
         assertEquals(Act.Where, say("I turned around. Where was it?", locked = 1))
         assertEquals(Act.Where, say("where is the bottle", locked = 1))         // not a new search that drops it
-        assertEquals(Act.Search("where is the cup"), say("where is the cup", locked = 1))
+        assertEquals(Act.Search("where is the laptop"), say("where is the laptop", locked = 1))
     }
 
     @Test fun cancelForgetsTheTaskSoALateAnswerLocksNothing() {
@@ -86,8 +86,8 @@ class ConversationTest {
 
     @Test fun askingForAnotherObjectResetsTheTask() {
         askForBottle()
-        assertEquals(Act.Search("find my cup"), say("find my cup"))
-        assertEquals("cup", talk.task!!.spec.name); assertTrue(talk.task!!.options.isEmpty())
+        assertEquals(Act.Search("find my laptop"), say("find my laptop"))
+        assertEquals("laptop", talk.task!!.spec.name); assertTrue(talk.task!!.options.isEmpty())
     }
 
     @Test fun aColourInTheRequestItselfPicksWhenTheEvidenceIsClear() {
@@ -100,8 +100,8 @@ class ConversationTest {
     @Test fun unsupportedObjectsGoToTheInterpreterWhichSaysSo() {
         askForBottle()
         assertEquals(Act.Search("find my laptop bag"), say("find my laptop bag"))
-        assertNull(talk.task) // before: "phone"/"laptop bag" became the task, and "the left one" was asked about it
-        assertEquals(Act.Search("find my phone"), say("find my phone"))
+        assertNull(talk.task) // before: "chair"/"laptop bag" became the task, and "the left one" was asked about it
+        assertEquals(Act.Search("find my chair"), say("find my chair"))
         assertEquals(Act.Search("the left one"), say("the left one"))
     }
 
@@ -121,7 +121,7 @@ class ConversationTest {
         assertEquals(Act.Hands(Side.LEFT), say("set my left hand"))
         assertEquals(Act.UseHand(Side.RIGHT), say("guide my right hand"))
         assertEquals(Act.Help, say("help"))
-        assertEquals(Act.Search("help me find my cup"), say("help me find my cup"))
+        assertEquals(Act.Search("help me find my laptop"), say("help me find my laptop"))
         assertEquals(Act.Done, say("I've got it"))
         assertEquals(Act.Cancel, say("stop"))
     }
@@ -155,11 +155,11 @@ class ConversationTest {
         say("find my laptop", twoBottles)
         assertEquals(Act.Say("I see 2 bottles too, so that doesn't tell me which. Do you want the one on the left or the right?"),
             say("the one next to the bottle", twoBottles))
-        assertEquals(Act.Say("I can't see a cup right now. Do you want the one on the left or the right?"),
-            say("the one next to the cup", twoBottles))
-        val middle = listOf(lapL, lapR, obj(15, "cup", 0.475f))
-        assertEquals(Act.Say("The laptops are about as close to the cup. Do you want the one on the left or the right?"),
-            say("the one near the cup", middle))
+        assertEquals(Act.Say("I can't see a bottle right now. Do you want the one on the left or the right?"),
+            say("the one next to the bottle", listOf(lapL, lapR)))
+        val middle = listOf(lapL, lapR, obj(15, "bottle", 0.475f))
+        assertEquals(Act.Say("The laptops are about as close to the bottle. Do you want the one on the left or the right?"),
+            say("the one near the bottle", middle))
         assertEquals(listOf(11, 12), talk.task!!.options) // still the same question
     }
 

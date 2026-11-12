@@ -9,7 +9,7 @@ class TutorialTest {
         assertFalse(off, "vibration means" in off)
         assertTrue(off, "isn't connected" in off && "once you've shown me each one" in off)
         val on = Tutorial.text(hapticsConnected = true, depthMode = true, bothHandsEnrolled = true)
-        assertEquals("Welcome to REACH. I can help you locate objects. I can find a bottle, laptop, book, backpack, handbag, or cup. Your left and right hands are tracked separately. " +
+        assertEquals("Welcome to REACH. I can help you locate objects. ${com.reach.app.grounding.SupportedClasses.SUPPORTED_LINE} Your left and right hands are tracked separately. " +
             "The vibration band is on. Two pulses on the left mean move left; two on the right mean move right. " +
             "One long buzz means hold still. Three long buzzes mean you reached the object. " +
             "Alternating pulses mean reach forward, and taps that speed up mean you are close. " +

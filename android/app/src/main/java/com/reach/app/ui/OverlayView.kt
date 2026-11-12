@@ -17,12 +17,12 @@ import com.reach.app.hand.Finger
 import com.reach.app.hand.HandResult
 import com.reach.app.hand.HandSelector.SlotState
 import com.reach.app.hand.Side
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /**
- * Draws the detector's real boxes and the hand landmarker's real fingertips over the live preview.
- * The preview fills the screen (fillCenter: scaled to cover, sides cropped on screen only); boxes and points use the
- * same transform from the actual analysis frame size, so they stay on the objects for any lens or camera mode.
- * Anything the models see outside the visible part is clipped at the edge; its label is kept on screen.
+ * Draws the detector's real boxes, target corner reticles, 21-landmark hand skeletons, and guidance vectors
+ * over the live preview.
  */
 class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
@@ -49,23 +49,40 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
     private val good = ContextCompat.getColor(context, R.color.reach_good)
     private val primary = ContextCompat.getColor(context, R.color.reach_primary)
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f); color = 0xCCFFFFFF.toInt() }
-    private val targetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(4f); color = good }
+    private val targetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(3.5f); color = good }
+    private val targetFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = (good and 0x00FFFFFF) or 0x22000000 }
+    private val reticlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f); color = good }
     private val labelBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, R.color.reach_scrim) }
     private val targetLabelBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = good }
     private val labelText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); textSize = sp(14f); isFakeBoldText = true }
     private val targetLabelText = Paint(labelText).apply { color = ContextCompat.getColor(context, R.color.reach_bg) }
     private val tipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = primary }
+    private val bonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2.2f); color = 0xAA00E5FF.toInt() }
+    private val secondaryBonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.6f); color = 0x77FFFFFF }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(3f); color = 0xFFFFFFFF.toInt() }
+    private val outerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2f); color = good }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = dp(2.5f); color = primary; pathEffect = DashPathEffect(floatArrayOf(dp(8f), dp(6f)), 0f)
+        style = Paint.Style.STROKE; strokeWidth = dp(3f); color = primary; pathEffect = DashPathEffect(floatArrayOf(dp(10f), dp(6f)), 0f)
     }
     private val warn = ContextCompat.getColor(context, R.color.reach_warn)
     private val lastSeenPaint = Paint(linePaint).apply { color = warn }
     private val hiddenPaint = Paint(linePaint).apply { color = warn; strokeWidth = dp(3f) }
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCCFFFFFF.toInt() }
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xDDFFFFFF.toInt() }
 
     private val r = RectF()
     private val bg = RectF()
+
+    companion object {
+        /** MediaPipe 21-point hand skeleton connections. */
+        private val HAND_BONES = arrayOf(
+            0 to 1, 1 to 2, 2 to 3, 3 to 4,         // thumb
+            0 to 5, 5 to 6, 6 to 7, 7 to 8,         // index
+            0 to 17, 5 to 9, 9 to 13, 13 to 17,     // palm arch
+            9 to 10, 10 to 11, 11 to 12,            // middle
+            13 to 14, 14 to 15, 15 to 16,          // ring
+            17 to 18, 18 to 19, 19 to 20            // pinky
+        )
+    }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -78,15 +95,23 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
             val isTarget = c.id == targetId
             if (isTarget) target = c
             r.set(ox + c.box.left * sx, oy + c.box.top * sy, ox + c.box.right * sx, oy + c.box.bottom * sy)
-            boxPaint.alpha = if (c.confirmed) 0xCC else 0x55 // seen in one frame only: not offered as a target
-            canvas.drawRoundRect(r, corner, corner, if (isTarget) targetPaint else boxPaint)
-            // Label pill above the box (inside it when the box touches the top). No colour guess: it is unverified.
+            boxPaint.alpha = if (c.confirmed) 0xCC else 0x55
+            if (isTarget) {
+                canvas.drawRoundRect(r, corner, corner, targetFillPaint)
+                canvas.drawRoundRect(r, corner, corner, targetPaint)
+                val cx = r.centerX(); val cy = r.centerY()
+                canvas.drawCircle(cx, cy, dp(7f), reticlePaint)
+                canvas.drawLine(cx - dp(12f), cy, cx + dp(12f), cy, reticlePaint)
+                canvas.drawLine(cx, cy - dp(12f), cx, cy + dp(12f), reticlePaint)
+            } else {
+                canvas.drawRoundRect(r, corner, corner, boxPaint)
+            }
             val name = c.label.replaceFirstChar { it.uppercase() }
-            val tag = if (isTarget) "Target · $name" else "$name ${(c.score * 100).toInt()}%${if (c.sure) "" else "?"}"
+            val tag = if (isTarget) "TARGET · $name" else "$name ${(c.score * 100).toInt()}%"
             val tp = if (isTarget) targetLabelText else labelText
             val tw = tp.measureText(tag); val th = tp.textSize
             val top = (if (r.top - th - 2 * pad >= 0f) r.top - th - 2 * pad else r.top + pad).coerceIn(0f, height - th - 2 * pad)
-            val left = r.left.coerceIn(0f, maxOf(0f, width - tw - 2 * pad)) // boxes cropped off-screen keep a readable label
+            val left = r.left.coerceIn(0f, maxOf(0f, width - tw - 2 * pad))
             bg.set(left, top, left + tw + 2 * pad, top + th + 2 * pad)
             canvas.drawRoundRect(bg, bg.height() / 2, bg.height() / 2, if (isTarget) targetLabelBg else labelBg)
             canvas.drawText(tag, bg.left + pad, bg.bottom - pad - tp.descent() / 2, tp)
@@ -95,39 +120,70 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
         hiddenTarget?.let { b ->
             r.set(ox + b.left * sx, oy + b.top * sy, ox + b.right * sx, oy + b.bottom * sy)
             canvas.drawRoundRect(r, corner, corner, hiddenPaint)
-            pill(canvas, "Target · hidden", r.left, r.top - labelText.textSize - 2 * pad, labelBg, labelText, pad)
+            pill(canvas, "Target · remembered", r.left, r.top - labelText.textSize - 2 * pad, labelBg, labelText, pad)
         }
 
-        tipPaint.alpha = 110 // hands that are not an enrolled, tracked hand: shown, never guided
+        tipPaint.alpha = 110
         for (o in others) for (tip in o.tips) canvas.drawCircle(ox + tip.x * sx, oy + tip.y * sy, dp(5f), tipPaint)
+
         for (v in hands) {
-            val tag = if (v.side == Side.LEFT) "L" else "R"
-            if (v.state == SlotState.MISSING) v.last?.let { last -> // where it was last seen: diagnostics only, never guided
+            val tag = if (v.side == Side.LEFT) "Left Hand" else "Right Hand"
+            if (v.state == SlotState.MISSING) v.last?.let { last ->
                 val x = ox + last.palmX * sx; val y = oy + last.palmY * sy
                 canvas.drawCircle(x, y, dp(16f), lastSeenPaint)
-                pill(canvas, "$tag?", x + dp(18f), y - dp(10f), labelBg, labelText, pad)
+                pill(canvas, "${if (v.side == Side.LEFT) "L" else "R"}?", x + dp(18f), y - dp(10f), labelBg, labelText, pad)
             }
             val h = v.hand
             if (!h.present) continue
             val isGuided = v.side == guided
             tipPaint.alpha = 255
-            dotPaint.alpha = 0xAA
-            for (lm in h.landmarks) canvas.drawCircle(ox + lm.x * sx, oy + lm.y * sy, dp(2.5f), dotPaint)
+            dotPaint.alpha = if (isGuided) 0xEE else 0x99
+
+            // Draw 21-point hand skeleton wireframe
+            val lms = h.landmarks
+            if (lms.size >= 21) {
+                val bp = if (isGuided) bonePaint else secondaryBonePaint
+                for ((a, b) in HAND_BONES) {
+                    val p0 = lms[a]; val p1 = lms[b]
+                    canvas.drawLine(ox + p0.x * sx, oy + p0.y * sy, ox + p1.x * sx, oy + p1.y * sy, bp)
+                }
+            }
+            for (lm in lms) canvas.drawCircle(ox + lm.x * sx, oy + lm.y * sy, dp(3f), dotPaint)
+
             val index = h.index
             val t = target
             if (guiding && isGuided && index != null && t != null) {
-                canvas.drawLine(ox + index.x * sx, oy + index.y * sy, ox + t.box.centerX() * sx, oy + t.box.centerY() * sy, linePaint)
+                val ix = ox + index.x * sx; val iy = oy + index.y * sy
+                val tx = ox + t.box.centerX() * sx; val ty = oy + t.box.centerY() * sy
+                canvas.drawLine(ix, iy, tx, ty, linePaint)
+                // Compute 2D alignment percentage (100% when index tip is over the target center)
+                val normDist = hypot(index.x - t.box.centerX(), index.y - t.box.centerY())
+                val alignPct = ((1f - (normDist / 0.55f)).coerceIn(0f, 1f) * 100f).roundToInt()
+                val midX = (ix + tx) * 0.5f; val midY = (iy + ty) * 0.5f
+                pill(
+                    canvas,
+                    "$alignPct% aligned",
+                    midX - dp(36f),
+                    midY - dp(14f),
+                    if (alignPct >= 85) targetLabelBg else labelBg,
+                    if (alignPct >= 85) targetLabelText else labelText,
+                    pad
+                )
             }
             for (tip in h.tips) {
                 val x = ox + tip.x * sx; val y = oy + tip.y * sy
                 if (tip.finger == Finger.INDEX && isGuided) {
-                    canvas.drawCircle(x, y, dp(11f), tipPaint); canvas.drawCircle(x, y, dp(11f), ringPaint)
-                } else canvas.drawCircle(x, y, dp(6f), tipPaint)
+                    canvas.drawCircle(x, y, dp(12f), tipPaint)
+                    canvas.drawCircle(x, y, dp(12f), ringPaint)
+                    canvas.drawCircle(x, y, dp(17f), outerRingPaint)
+                } else {
+                    canvas.drawCircle(x, y, dp(5.5f), tipPaint)
+                }
             }
-            pill(canvas, tag, ox + h.palmX * sx - dp(8f), oy + h.palmY * sy + dp(12f), labelBg, labelText, pad)
+            pill(canvas, tag, ox + h.palmX * sx - dp(28f), oy + h.palmY * sy + dp(14f), labelBg, labelText, pad)
             val d = distance
             if (d != null && index != null && isGuided) {
-                pill(canvas, d, ox + index.x * sx + dp(16f), oy + index.y * sy - labelText.textSize / 2 - pad, labelBg, labelText, pad)
+                pill(canvas, d, ox + index.x * sx + dp(18f), oy + index.y * sy - labelText.textSize / 2 - pad, labelBg, labelText, pad)
             }
         }
     }
@@ -141,8 +197,7 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
     }
 }
 
-/** FILL_CENTER (PreviewView fillCenter / ImageView centerCrop): scale the frame to cover the view, centred. Returns
- *  scaleX, scaleY, offsetX, offsetY so that viewX = offsetX + normX * scaleX (offsets are <= 0 on the cropped axis). */
+/** FILL_CENTER (PreviewView fillCenter / ImageView centerCrop): scale the frame to cover the view, centred. */
 internal fun fillCenter(w: Float, h: Float, frameW: Float, frameH: Float): FloatArray {
     val k = maxOf(w / frameW, h / frameH)
     val fw = frameW * k; val fh = frameH * k

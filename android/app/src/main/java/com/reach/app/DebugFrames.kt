@@ -53,7 +53,7 @@ class DebugFrames(private val context: Context) {
     }
 
     /** Images sorted by name; names f_<ms>.<ext> carry the real frame time (sequences), others are 100 ms apart. */
-    fun replay(dirName: String, model: String = "efficientdet_lite0.tflite", loops: Int = 1) = io.execute {
+    fun replay(dirName: String, model: String = "efficientdet_lite2_int8.tflite", loops: Int = 1) = io.execute {
         val files = File(context.filesDir, dirName).listFiles { f -> f.extension.lowercase() in setOf("png", "jpg", "jpeg") }
             ?.sortedBy { it.name }.orEmpty()
         Log.i(TAG, "replay $dirName: ${files.size} frames, model=$model loops=$loops")

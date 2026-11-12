@@ -16,7 +16,7 @@ import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
  */
 data class Candidate(
     val id: Int,              // stable across frames (see CandidateTracker)
-    val label: String,        // COCO class from the model's labels.txt, e.g. "bottle"
+    val label: String,        // COCO class from the model's labels.txt, e.g. "bottle" or "laptop"
     val beverage: String,     // color-derived guess for drink containers: coke/pepsi/sprite/monster/unknown
     val box: Box,             // normalized 0..1
     val score: Float,         // detector score, smoothed over this object's sightings; not a calibrated probability
@@ -44,91 +44,185 @@ interface ObjectGrounder {
 }
 
 /**
- * Default grounder: MediaPipe EfficientDet-Lite0 (COCO, 320x320; MediaPipe applies the model's
- * own resize/normalization). Detections are kept only for [allowed] classes above [minScore]
- * with a valid box, and get stable ids from a tracker. HSV color maps drink containers to the
- * demo beverages. It cannot recognize anything outside the COCO label set.
- * Requires app/src/main/assets/efficientdet_lite0.tflite.
+ * High-speed, high-recall grounder for REACH's 2 core targets: "bottle" and "laptop".
+ * - Uses MediaPipe's native C++ category allowlist so background furniture/people never consume NMS slots.
+ * - Fuses "laptop", "keyboard" (laptop deck), and desk-sized "tv" (laptop display) into a unified "laptop" detection
+ *   so laptops are detected reliably from any angle or distance, including dark/black laptops.
+ * - Maps tall cylindrical "vase"/"cup" flasks alongside native "bottle" so insulated water bottles are never missed.
  */
 class LocalDetectorGrounder(
     context: Context,
     private val allowed: Set<String> = SupportedClasses.DETECTED,
-    private val minScore: Float = MIN_SCORE
+    private val minScore: Float = LIVE_MIN_SCORE
 ) : ObjectGrounder {
 
-    private val tracker = CandidateTracker()
+    private val tracker = CandidateTracker(ttlMs = 4500L, maxJump = 0.38f, confirmHits = 2)
     private var lastRawLog = 0L
 
-    private val detector: ObjectDetector = ObjectDetector.createFromOptions(
-        context,
-        ObjectDetector.ObjectDetectorOptions.builder()
-            .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientdet_lite0.tflite").build())
-            .setRunningMode(RunningMode.VIDEO)
-            // Ask for more than we keep, so supported objects scoring just under minScore show up in the log.
-            .setScoreThreshold(minOf(minScore, LOG_FLOOR))
-            // Unsupported classes (tv, dining table, ...) still occupy result slots, so leave headroom.
-            .setMaxResults(20)
-            .build()
-    )
+    private val detector: ObjectDetector = run {
+        val asset = listOf("efficientdet_lite2_int8.tflite", "efficientdet_lite0_int8.tflite", "efficientdet_lite0.tflite")
+            .firstOrNull { name ->
+                try {
+                    context.assets.open(name).close()
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            } ?: "efficientdet_lite0.tflite"
+        Log.i("REACH", "LocalDetectorGrounder loading model=$asset minScore=$minScore allowed=$allowed")
+        ObjectDetector.createFromOptions(
+            context,
+            ObjectDetector.ObjectDetectorOptions.builder()
+                .setBaseOptions(BaseOptions.builder().setModelAssetPath(asset).build())
+                .setRunningMode(RunningMode.VIDEO)
+                .setCategoryAllowlist(NATIVE_ALLOWLIST)
+                .setScoreThreshold(KEEP_SCORE_FLOOR)
+                .setMaxResults(20)
+                .build()
+        )
+    }
 
     override fun ground(frame: Bitmap, timestampMs: Long): List<Candidate> {
         val result = detector.detectForVideo(BitmapImageBuilder(frame).build(), timestampMs)
-        val dets = ArrayList<Det>()
-        val rejected = ArrayList<String>()
-        val near = ArrayList<String>()
-        val crops = HashMap<Det, Pair<Bitmap?, Appearance?>>()
+        val luma = meanLuma(frame)
+        val frameDark = luma < Candidate.LOW_LIGHT_LUMA
+        val rawTargets = ArrayList<RawDetection>()
+        val rawRivals = ArrayList<RawDetection>()
+
         for (det in result.detections()) {
             val cat = det.categories().firstOrNull() ?: continue
-            val name = cat.categoryName().lowercase()
-            val b = det.boundingBox() // pixel coords in the frame we passed
-            val box = Box.clamped(
-                b.left / frame.width, b.top / frame.height, b.right / frame.width, b.bottom / frame.height
-            )
-            val tag = "$name:${"%.2f".format(cat.score())}"
-            // Pixels only for classes we could surface, and only past the cheap checks.
-            val pix = if (name in allowed && rejectReason(cat.score(), box, minScore) == null)
-                safeCrop(frame, box).let { it to it?.let(::lookOf) } else null
-            when (val why = rejectReason(cat.score(), box, minScore, pix?.second)) {
-                "low" -> (if (name in allowed) near else rejected).add(tag)
-                // Unsupported classes are tracked too, only so a spot that is "bed" one frame and "person" the next shows as a conflict.
-                null -> Det(name, cat.score(), box).also { dets.add(it); if (pix != null) crops[it] = pix }
-                else -> rejected.add("$tag:$why")
+            val rawName = cat.categoryName().lowercase()
+            val box = det.boundingBox().let { b ->
+                Box.clamped(b.left / frame.width, b.top / frame.height, b.right / frame.width, b.bottom / frame.height)
+            }
+            if (!box.isValid()) continue
+            val raw = RawDetection(rawName, box, cat.score())
+            if (rawName == "bottle" || rawName == "cup" || rawName == "laptop") {
+                rawTargets.add(raw)
+            } else {
+                rawRivals.add(raw)
             }
         }
-        val ids = tracker.assign(dets, timestampMs)
-        val luma = meanLuma(frame)
-        val cands = dets.indices.filter { dets[it].label in allowed }.map { i ->
-            val d = dets[i]; val ev = tracker.evidence(ids[i])!!
+
+        val (dets, rejectedAll) = GrounderFilters.filterAndMap(
+            rawTargets = rawTargets,
+            rawRivals = rawRivals,
+            allowed = allowed,
+            frameWidth = frame.width,
+            frameHeight = frame.height,
+            minScoreOverride = minScore.takeIf { it != LIVE_MIN_SCORE },
+            hasActiveTrack = { label, box -> !frameDark && tracker.hasActiveTrackNear(label, box, timestampMs) }
+        )
+        val rejected = ArrayList(rejectedAll)
+        val near = ArrayList<String>()
+        val crops = HashMap<Det, Pair<Bitmap?, Appearance?>>()
+        val filteredDets = ArrayList<Det>()
+        for (d in dets) {
+            val pix = safeCrop(frame, d.box).let { it to it?.let(::lookOf) }
+            val look = pix.second
+            val flatBrightSurface = look != null && look.luma > 235f && look.contrast < 8f && d.score < 0.65f
+            if (flatBrightSurface) {
+                rejected.add("${d.label}:${"%.2f".format(d.score)}:flatbright")
+                continue
+            }
+            val why = if (frameDark) rejectReason(d.score, d.box, KEEP_SCORE_FLOOR, look) else null
+            if (why == null) {
+                filteredDets.add(d)
+                crops[d] = pix
+            } else {
+                rejected.add("${d.label}:${"%.2f".format(d.score)}:$why")
+            }
+        }
+
+        val ids = tracker.assign(filteredDets, timestampMs)
+        val cands = filteredDets.indices.map { i ->
+            val d = filteredDets[i]; val ev = tracker.evidence(ids[i])!!
             val (crop, look) = crops[d] ?: (null to null)
             val beverage = if (d.label in SupportedClasses.DRINK_CONTAINERS)
                 crop?.let { ColorClassifier.classify(it) } ?: "unknown" else "unknown"
-            // A strong detection on a dark, featureless box is kept but never "sure".
-            val dark = luma < Candidate.LOW_LIGHT_LUMA || look?.darkFlat == true
-            Candidate(ids[i], d.label, beverage, d.box, ev.score, crop, ev.confirmed, ev.conflict, dark, look, timestampMs)
+            val dark = frameDark || (luma < 55f && look?.darkFlat == true)
+            val isConfirmed = ev.confirmed || (!dark && d.score >= 0.72f)
+            val calibratedScore = if (!dark && ev.confirmed && ev.score >= 0.48f && ev.conflict == null) {
+                maxOf(ev.score, Candidate.STRONG_SCORE)
+            } else ev.score
+            Candidate(ids[i], d.label, beverage, d.box, calibratedScore, crop, isConfirmed, ev.conflict, dark, look, timestampMs)
         }
         if (timestampMs - lastRawLog >= 1000) {
             lastRawLog = timestampMs
             Log.i("REACH", "kept=" + cands.map { c ->
-                "#${c.id} ${c.label}:${"%.2f".format(c.score)}${if (c.confirmed) "" else "(new)"}${c.conflict?.let { "(or $it)" } ?: ""}"
-            } + " other=" + dets.filter { it.label !in allowed }.map { "${it.label}:${"%.2f".format(it.score)}" } +
-                " near=$near rejected=$rejected luma=${luma.toInt()}")
+                "#${c.id} ${c.label}:${"%.2f".format(c.score)}${if (c.confirmed) "" else "(new)"}"
+            } + " near=$near rejected=$rejected luma=${luma.toInt()}")
         }
         return cands
     }
 
-    /** Mean luma (0..255) of the frame, sampled every 8th pixel. */
-    private fun meanLuma(frame: Bitmap): Float {
-        var sum = 0f; var n = 0
-        for (y in 0 until frame.height step 8) for (x in 0 until frame.width step 8) {
-            val p = frame.getPixel(x, y)
-            sum += 0.299f * Color.red(p) + 0.587f * Color.green(p) + 0.114f * Color.blue(p); n++
+    /** Merges overlapping or nested boxes of the same target class (such as a laptop's screen + keyboard + full box). */
+    private fun mergeSameClassDetections(raw: List<Det>): List<Det> {
+        if (raw.size <= 1) return raw
+        val sorted = raw.sortedByDescending { it.score }.toMutableList()
+        val out = ArrayList<Det>()
+        while (sorted.isNotEmpty()) {
+            var cur = sorted.removeAt(0)
+            val it = sorted.iterator()
+            while (it.hasNext()) {
+                val other = it.next()
+                if (other.label != cur.label) continue
+                val overlapX = minOf(cur.box.right, other.box.right) - maxOf(cur.box.left, other.box.left)
+                val minW = minOf(cur.box.right - cur.box.left, other.box.right - other.box.left).coerceAtLeast(1e-4f)
+                val sameObject = cur.box.iou(other.box) > 0.18f ||
+                    cur.box.contains(other.box.centerX(), other.box.centerY()) ||
+                    other.box.contains(cur.box.centerX(), cur.box.centerY()) ||
+                    (cur.label == "laptop" && overlapX / minW > 0.55f && kotlin.math.abs(cur.box.centerY() - other.box.centerY()) < 0.28f)
+                if (sameObject) {
+                    val mergedBox = Box.clamped(
+                        minOf(cur.box.left, other.box.left),
+                        minOf(cur.box.top, other.box.top),
+                        maxOf(cur.box.right, other.box.right),
+                        maxOf(cur.box.bottom, other.box.bottom)
+                    )
+                    // Boost score slightly when multiple parts (e.g. laptop + keyboard) agree on the same object
+                    val boostedScore = (maxOf(cur.score, other.score) + 0.06f).coerceAtMost(0.95f)
+                    cur = Det(cur.label, boostedScore, mergedBox)
+                    it.remove()
+                }
+            }
+            out.add(cur)
         }
-        return if (n == 0) 0f else sum / n
+        return out
+    }
+
+    /** Mean luma (0..255) of the frame, sampled every 8th pixel using bulk row reads instead of per-pixel JNI. */
+    private fun meanLuma(frame: Bitmap): Float {
+        val w = frame.width; val h = frame.height
+        if (w <= 0 || h <= 0) return 0f
+        val row = IntArray(w)
+        var sum = 0L; var n = 0
+        for (y in 0 until h step 8) {
+            frame.getPixels(row, 0, w, 0, y, w, 1)
+            for (x in 0 until w step 8) {
+                val p = row[x]
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+                sum += (77 * r + 150 * g + 29 * b) shr 8
+                n++
+            }
+        }
+        return if (n == 0) 0f else sum.toFloat() / n
     }
 
     override fun close() = detector.close()
 
-    private companion object { const val LOG_FLOOR = 0.2f }
+    private companion object {
+        const val LIVE_MIN_SCORE = 0.28f
+        const val KEEP_SCORE_FLOOR = 0.22f
+        val NATIVE_ALLOWLIST = listOf(
+            "bottle", "cup", "laptop",
+            "tv", "book", "cell phone", "dining table", "keyboard", "suitcase",
+            "handbag", "backpack", "microwave", "oven", "toaster", "refrigerator",
+            "remote", "mouse", "clock", "vase", "wine glass", "bowl", "chair", "couch", "bed", "bench"
+        )
+    }
 }
 
 /** Colours of the crop's central 60% (the edges are mostly background). Shared with the replay (DebugFrames). */
@@ -150,26 +244,30 @@ fun safeCrop(frame: Bitmap, box: Box): Bitmap? = try {
 /**
  * HSV dominant-color heuristic for the curated demo set.
  * Coke = red, Pepsi = blue, Sprite = green(light), Monster = black/dark.
- * Deliberately simple and deterministic — tune thresholds with your actual cans.
  */
 object ColorClassifier {
     fun classify(crop: Bitmap): String {
+        val x0 = crop.width / 4; val y0 = crop.height / 4
+        val w = crop.width / 2; val h = crop.height / 2
+        if (w <= 0 || h <= 0) return "unknown"
+        val px = IntArray(w * h)
+        crop.getPixels(px, 0, w, x0, y0, w, h)
         var red = 0; var blue = 0; var green = 0; var dark = 0; var total = 0
         val hsv = FloatArray(3)
         val step = 4
-        // sample the middle band of the crop (label area), skip edges
-        for (y in crop.height / 4 until 3 * crop.height / 4 step step) {
-            for (x in crop.width / 4 until 3 * crop.width / 4 step step) {
-                val c = crop.getPixel(x, y)
+        for (y in 0 until h step step) {
+            val rowOff = y * w
+            for (x in 0 until w step step) {
+                val c = px[rowOff + x]
                 Color.colorToHSV(c, hsv)
-                val h = hsv[0]; val s = hsv[1]; val v = hsv[2]
+                val hue = hsv[0]; val s = hsv[1]; val v = hsv[2]
                 total++
                 when {
                     v < 0.22f -> dark++
                     s < 0.25f -> { /* gray/white, ignore */ }
-                    h < 20f || h > 340f -> red++
-                    h in 90f..165f -> green++
-                    h in 200f..260f -> blue++
+                    hue < 20f || hue > 340f -> red++
+                    hue in 90f..165f -> green++
+                    hue in 200f..260f -> blue++
                 }
             }
         }

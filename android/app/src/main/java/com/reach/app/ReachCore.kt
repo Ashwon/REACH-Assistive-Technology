@@ -100,7 +100,15 @@ data class ReachSnapshot(
 class ReachCore(private val say: (String) -> Unit, private val log: (String) -> Unit = {},
                 depthReachedValidated: Boolean = SpatialEngine.DEPTH_REACHED_VALIDATED,
                 private val haptic: (HapticCue?) -> Unit = {},
-                handConfig: HandSelector.Config = HandSelector.Config()) {
+                private val handConfig: HandSelector.Config = HandSelector.Config(),
+                val lock: TargetLock = TargetLock(),
+                private val spatial: SpatialEngine = SpatialEngine(depthReachedValidated),
+                private val throttle: GuidanceThrottle = GuidanceThrottle(),
+                private val introQuietMs: Long = INTRO_QUIET_MS,
+                private val relockQuietMs: Long = RELOCK_QUIET_MS,
+                private val boxTurnDeg: Float = BOX_TURN_DEG,
+                private val singleHandSetup: Boolean = false,
+                private val autoResumeGuidance: Boolean = false) {
 
     companion object {
         /** Let "guiding..." / "got your hand" finish before direction cues resume. */
@@ -133,8 +141,6 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
     @Volatile var chestMounted = true
     /** Horizontal field of view of the analysis frame (deg), for the target's bearing. */
     @Volatile var fovDeg = 75f
-    val lock = TargetLock()
-    private val spatial = SpatialEngine(depthReachedValidated)
     private val meter = DepthMeter()
     private val turn = TurnMonitor()
     private val policy = HapticPolicy()
@@ -146,7 +152,6 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
     private var saidNoDepth = false
     private var lastReading: DepthReading? = null
     private var dists: Pair<Float?, Float?> = null to null
-    private val throttle = GuidanceThrottle()
     /** Hand-setup prompts outside guidance: said when they change, not repeated. */
     private val setupThrottle = GuidanceThrottle(statusRepeatMs = Long.MAX_VALUE / 4)
     private val hands = HandSelector(handConfig)
@@ -166,13 +171,18 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
     /** "Set up my hands" (both, left first) or one side: enrol by the gesture. Independent of any object search. */
     @Synchronized fun beginHandSetup(nowMs: Long, intro: String = "", side: Side? = null) {
         enrollQueue.clear()
-        if (side == null) enrollQueue.addAll(listOf(Side.LEFT, Side.RIGHT)) else enrollQueue.add(side)
+        when {
+            side != null -> enrollQueue.add(side)
+            singleHandSetup -> enrollQueue.add(preferred ?: Side.RIGHT)
+            else -> enrollQueue.addAll(listOf(Side.LEFT, Side.RIGHT))
+        }
         enrollNext(nowMs, intro)
     }
 
     private fun enrollNext(nowMs: Long, intro: String) {
         val side = enrollQueue.removeFirstOrNull() ?: return
-        val line = intro + handSetup(side)
+        val prompt = if (handConfig.autoEnroll) "Show your ${side.word} hand in front of the camera." else handSetup(side)
+        val line = intro + prompt
         hands.beginEnrollment(side, nowMs, heardAtMs = nowMs + speechMs(line))
         setupThrottle.reset(); setupThrottle.filter(Guidance.HAND_SHOW, nowMs) // the line below already says it
         setupThrottle.quiet(nowMs + speechMs(line))
@@ -194,8 +204,8 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
     @Synchronized fun useHand(side: Side, nowMs: Long) {
         preferred = side
         if (mode != Mode.GUIDING) return
-        guided = side; spatial.reset(); throttle.quiet(nowMs + RELOCK_QUIET_MS)
-        if (usable(side)) say("Guiding your ${side.word} hand.")
+        guided = side; spatial.reset(); throttle.quiet(nowMs + relockQuietMs)
+        if (usable(side) || handConfig.autoEnroll) say("Guiding your ${side.word} hand.")
         else beginHandSetup(nowMs, "I need to confirm your ${side.word} hand. ", side)
     }
 
@@ -204,7 +214,11 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
         forgetTarget()
         enter(Mode.IDLE)
         hands.clear()
-        beginHandSetup(nowMs, intro)
+        if (handConfig.autoEnroll) {
+            if (intro.isNotBlank()) say(intro.trim())
+        } else {
+            beginHandSetup(nowMs, intro)
+        }
     }
 
     /** Main thread. Returns the token the interpretation must hand back to [onSearchResult]. */
@@ -297,11 +311,17 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
         noDepthSince = -1L; saidNoDepth = false; lastReading = null
         val order = listOfNotNull(preferred, guided, Side.RIGHT, Side.LEFT).distinct()
         guided = order.firstOrNull { hands.slot(it).state == SlotState.TRACKED } ?: order.firstOrNull { usable(it) }
-            ?: order.firstOrNull { hands.slot(it).enrolled }
+            ?: order.firstOrNull { hands.slot(it).enrolled } ?: if (handConfig.autoEnroll) (preferred ?: Side.RIGHT) else null
         enter(Mode.GUIDING)
         val g = guided
         val start = if (depthSource) "Guiding by direction. Distance is an estimate." else "Guiding by direction only, not distance."
         when {
+            handConfig.autoEnroll -> {
+                hands.cancelEnrollment(); enrollQueue.clear()
+                val side = g ?: Side.RIGHT
+                guided = side
+                say("$start Guiding your ${side.word} hand.")
+            }
             g == null -> beginHandSetup(nowMs, "$start First, let's set up your hands. ")
             !usable(g) -> beginHandSetup(nowMs, "$start First, I need to confirm your ${g.word} hand. ", g)
             else -> say("$start Guiding your ${g.word} hand. Hold it out.")
@@ -351,7 +371,7 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
         this.depthSource = depthSource
         hands.update(detected, tsMs)
         trackHandIdentity(tsMs)
-        if (introPending) { throttle.quiet(tsMs + INTRO_QUIET_MS); introPending = false }
+        if (introPending) { throttle.quiet(tsMs + introQuietMs); introPending = false }
         lock.box?.let { lock.noteHands(handsOver(it, detected), tsMs) }
         val track = lock.statusAt(tsMs)
         trackTarget(track, tsMs)
@@ -381,7 +401,7 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
             if (enrollQueue.isNotEmpty()) enrollNext(tsMs, got)
             else say(got + if (usable(Side.LEFT) && usable(Side.RIGHT)) "Both hands are set." else "Keep it in view.")
             if (mode == Mode.GUIDING && guided?.let(::usable) != true) guided = side
-            throttle.quiet(tsMs + RELOCK_QUIET_MS)
+            throttle.quiet(tsMs + relockQuietMs)
         }
         for (side in Side.values()) {
             val s = hands.slot(side)
@@ -391,12 +411,12 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
             if (mode != Mode.GUIDING || side != guided) continue
             when (s.state) {
                 SlotState.UNCERTAIN -> say(Guidance.HAND_UNCERTAIN.phrase(targetName, "${side.word} hand")!!)
-                SlotState.NEEDS_RECOVERY -> if (hands.enrolling == null) {
+                SlotState.NEEDS_RECOVERY -> if (hands.enrolling == null && !handConfig.autoEnroll) {
                     beginHandSetup(tsMs, "I can't be sure which is your ${side.word} hand. Guidance paused. ", side)
                 }
                 else -> {}
             }
-            throttle.quiet(tsMs + RELOCK_QUIET_MS)
+            throttle.quiet(tsMs + relockQuietMs)
         }
     }
 
@@ -408,7 +428,7 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
             log("turn $lastTurn -> $t toTarget=${turn.toTarget(tsMs)}")
             if (t == TurnMonitor.State.AWAY) {
                 say(turnLine(tsMs)); lossAnnounced = true; returnedAt = -1L
-                throttle.mark(Guidance.TURNED_AWAY, tsMs); throttle.quiet(tsMs + RELOCK_QUIET_MS)
+                throttle.mark(Guidance.TURNED_AWAY, tsMs); throttle.quiet(tsMs + relockQuietMs)
             } else if (t == TurnMonitor.State.ALIGNED && lastTurn == TurnMonitor.State.AWAY && track != TrackStatus.TRACKING) {
                 lock.relaxPosition(); returnedAt = tsMs // the object may be anywhere in view now; look again
                 say("Hold there. I'm looking for the $targetName.")
@@ -418,8 +438,14 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
         if (active && track == TrackStatus.TRACKING && lastTrack != TrackStatus.TRACKING) {
             if (lossAnnounced) {
                 log("found again $targetName#${lock.id} (refinds=${lock.reacquisitions})")
-                say("Found the $targetName again." + if (mode == Mode.TRACKING_LOST) " Say guide me to continue." else "")
-                throttle.quiet(tsMs + RELOCK_QUIET_MS); refoundAt = tsMs
+                if (mode == Mode.TRACKING_LOST && autoResumeGuidance) {
+                    enter(Mode.GUIDING)
+                    spatial.reset(); throttle.reset()
+                    say("Found the $targetName again. Continuing guidance.")
+                } else {
+                    say("Found the $targetName again." + if (mode == Mode.TRACKING_LOST) " Say guide me to continue." else "")
+                }
+                throttle.quiet(tsMs + relockQuietMs); refoundAt = tsMs
             }
             lossAnnounced = false; returnedAt = -1L
         }
@@ -430,7 +456,7 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
      *  was seen (a box is a measurement of the image it came from). Null otherwise; identity is kept elsewhere. */
     private fun freshBox(tsMs: Long): Box? {
         if (turn.state == TurnMonitor.State.AWAY) return null
-        if (turn.turnedSinceSeen(tsMs)?.let { abs(it) > BOX_TURN_DEG } == true) return null
+        if (turn.turnedSinceSeen(tsMs)?.let { abs(it) > boxTurnDeg } == true) return null
         return lock.boxAt(tsMs)
     }
 
@@ -473,9 +499,11 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
     private fun guide(detected: List<HandResult>, track: TrackStatus, tsMs: Long, injected: DepthSample?, frame: DepthFrame?) {
         // Guiding needs a usable hand: take one that is enrolled, else keep asking (the prompt expires; renew it).
         // A guided hand that needs recovery stays the guided one: its guidance pauses until the user confirms it.
-        if (guided == null) guided = listOfNotNull(preferred, Side.RIGHT, Side.LEFT).firstOrNull(::usable)
+        if (guided == null || (handConfig.autoEnroll && !usable(guided!!))) {
+            guided = listOfNotNull(preferred, Side.RIGHT, Side.LEFT).firstOrNull(::usable) ?: guided ?: (if (handConfig.autoEnroll) (preferred ?: Side.RIGHT) else null)
+        }
         val g = guided
-        if (hands.enrolling == null && (g == null || !usable(g))) beginHandSetup(tsMs, "", g)
+        if (hands.enrolling == null && (g == null || !usable(g)) && !handConfig.autoEnroll) beginHandSetup(tsMs, "", g)
         val hand = g?.let { hands.hand(it) } ?: HandResult.NONE
         val tip = hand.index // all five tips and this one come from the one guided hand
         val away = turn.state == TurnMonitor.State.AWAY
@@ -495,10 +523,14 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
                 saidNoDepth = true
                 log("no depth: ${reading?.reason}")
                 say("Distance unavailable. Direction only.")
-                throttle.quiet(tsMs + RELOCK_QUIET_MS)
+                throttle.quiet(tsMs + relockQuietMs)
             }
         } else noDepthSince = -1L
-        val engine = spatial.update(SpatialInput(box, tip?.x, tip?.y, depth, tsMs, occluded = track == TrackStatus.OCCLUDED))
+        val engine = spatial.update(SpatialInput(
+            box, tip?.x, tip?.y, depth, tsMs,
+            occluded = track == TrackStatus.OCCLUDED,
+            handGrasping = hand.pose == com.reach.app.hand.Pose.FIST
+        ))
         val word = g?.let { "${it.word} hand" } ?: "hand"
         val cue = setupPrompt() ?: when {
             away -> Guidance.TURNED_AWAY
@@ -524,8 +556,37 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
             say(when {
                 spoken == Guidance.TURNED_AWAY -> turnLine(tsMs)
                 hands.enrolling != null && spoken == setupPrompt() -> spoken.phrase(targetName, enrollWord())!! // the hand being enrolled
+                handConfig.autoEnroll && spoken == Guidance.LINED_UP_2D ->
+                    "Lined up. Reach forward slowly, and say got it when you reach it."
+                handConfig.autoEnroll && spoken == Guidance.HAND_COVERS_TARGET ->
+                    "Right in front of the $targetName. Keep reaching, and say got it when you hold it."
+                handConfig.autoEnroll && (spoken == Guidance.LEFT || spoken == Guidance.RIGHT || spoken == Guidance.UP || spoken == Guidance.DOWN) ->
+                    naturalDirectionPhrase(spoken, spatial.ex, spatial.ey)
                 else -> spoken.phrase(targetName, word)!!
             })
+        }
+    }
+
+    private fun naturalDirectionPhrase(cue: Guidance, ex: Float, ey: Float): String {
+        val hWord = when {
+            ex > 0.04f -> "right"
+            ex < -0.04f -> "left"
+            else -> null
+        }
+        val vWord = when {
+            ey > 0.04f -> "down"
+            ey < -0.04f -> "up"
+            else -> null
+        }
+        if (abs(ex) > 0.13f && abs(ey) > 0.13f && hWord != null && vWord != null) {
+            return "Move $hWord and $vWord."
+        }
+        return when (cue) {
+            Guidance.LEFT -> if (abs(ex) < 0.11f) "Slightly left." else "Move left."
+            Guidance.RIGHT -> if (abs(ex) < 0.11f) "Slightly right." else "Move right."
+            Guidance.UP -> if (abs(ey) < 0.11f) "Slightly up." else "Move up."
+            Guidance.DOWN -> if (abs(ey) < 0.11f) "Slightly down." else "Move down."
+            else -> cue.phrase(targetName)!!
         }
     }
 
@@ -548,7 +609,7 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
         // One hand is reliably closer: unless the user chose a hand, voice guidance follows that hand.
         val closer = when (cmd) { HapticCommand.LEFT_HAND_CLOSER -> Side.LEFT; HapticCommand.RIGHT_HAND_CLOSER -> Side.RIGHT; else -> null }
         if (closer != null && closer != g && preferred == null && hands.slot(closer).state == SlotState.TRACKED) {
-            guided = closer; spatial.reset(); throttle.quiet(tsMs + RELOCK_QUIET_MS)
+            guided = closer; spatial.reset(); throttle.quiet(tsMs + relockQuietMs)
             say("Your ${closer.word} hand is closer. Guiding your ${closer.word} hand.")
         }
         val cue = bandCue(track, tsMs)
@@ -574,10 +635,12 @@ class ReachCore(private val say: (String) -> Unit, private val log: (String) -> 
             when {
                 turn.state == TurnMonitor.State.AWAY || g == null || !usable(g) || hands.enrolling != null || lastCue in HOLD_CUES ->
                     HapticCue.HOLD
-                refoundAt >= 0 && tsMs - refoundAt < RELOCK_QUIET_MS -> HapticCue.REACQUIRED
+                refoundAt >= 0 && tsMs - refoundAt < relockQuietMs -> HapticCue.REACQUIRED
                 track != TrackStatus.TRACKING -> if (returnedAt >= 0) HapticCue.SEARCH else null
                 lastCue == Guidance.LEFT -> HapticCue.MOVE_LEFT
                 lastCue == Guidance.RIGHT -> HapticCue.MOVE_RIGHT
+                handConfig.autoEnroll && !depthOk && lastCue == Guidance.LINED_UP_2D -> HapticCue.FORWARD
+                handConfig.autoEnroll && !depthOk && lastCue == Guidance.NEAR -> HapticCue.NEAR_CLOSE
                 !depthOk || !spatial.aligned || gap == null -> null
                 lastCue == Guidance.CLOSER -> HapticCue.FORWARD
                 lastCue == Guidance.NEAR || lastCue == Guidance.AT_TARGET -> HapticCue.near(gap)
