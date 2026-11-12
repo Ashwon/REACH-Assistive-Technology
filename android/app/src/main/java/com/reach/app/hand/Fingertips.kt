@@ -25,7 +25,9 @@ data class HandResult(
     val palmX: Float = 0f,              // centre of wrist + the four knuckles: where this hand is, frame to frame
     val palmY: Float = 0f,
     val pose: Pose = Pose.OTHER,
-    val landmarks: List<Lm> = emptyList() // all 21, for recording / offline evaluation
+    val landmarks: List<Lm> = emptyList(), // all 21, for recording / offline evaluation
+    val handedness: String? = null,        // MediaPipe's "Left"/"Right" (mirrored for a rear camera); a veto, never identity
+    val world: List<Lm> = emptyList()      // MediaPipe world landmarks: metres, origin at the hand's centre, camera-aligned axes
 ) {
     fun tip(f: Finger) = tips.firstOrNull { it.finger == f }
     /** Guidance point. Index finger stays the default until other fingers are tested in use. */
@@ -38,13 +40,13 @@ data class HandResult(
         private val PALM = intArrayOf(0, 5, 9, 13, 17) // wrist + index/middle/ring/little knuckles
         private val TIP_PIP = listOf(8 to 6, 12 to 10, 16 to 14, 20 to 18) // index..little: tip, middle joint
 
-        fun fromLandmarks(lm: List<Lm>, score: Float): HandResult {
+        fun fromLandmarks(lm: List<Lm>, score: Float, handedness: String? = null, world: List<Lm> = emptyList()): HandResult {
             if (lm.size < 21) return NONE // a full hand is 21 landmarks; anything else is not a hand
             val tips = Finger.values().map { f -> lm[f.landmark].let { Tip(f, it.x, it.y, it.z, it.visibility, it.presence) } }
             val size = kotlin.math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y) // wrist -> middle MCP
             val palm = PALM.map { lm[it] }
             return HandResult(true, tips, size, score, palm.map { it.x }.average().toFloat(), palm.map { it.y }.average().toFloat(),
-                pose(lm), lm)
+                pose(lm), lm, handedness, world.takeIf { it.size >= 21 } ?: emptyList())
         }
 
         /** A curled finger's tip is nearer the wrist than its middle joint (ratio ~0.5 in a fist, ~1.4 straight). */

@@ -51,7 +51,11 @@ Rules:
 - NEVER invent confidence. If thumbnails are ambiguous or missing, confidence
   must be low (<0.5) and you must say you are unsure.
 - Use the thumbnails to verify the beverage guess; the color heuristic can be
-  wrong."""
+  wrong.
+- Only choose a candidate whose label is the object the user asked for (a cup
+  may stand in for a mug). Never substitute another kind of object: if the user
+  asks for something none of the candidates is, use candidate_id=-1. The app can
+  only find bottles, laptops, books, backpacks, handbags and cups."""
 
 
 class CandidateIn(BaseModel):

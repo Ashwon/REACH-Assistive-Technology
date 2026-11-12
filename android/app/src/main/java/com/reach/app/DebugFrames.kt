@@ -11,6 +11,11 @@ import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
+import com.reach.app.grounding.Box
+import com.reach.app.grounding.CropEmbedder
+import com.reach.app.grounding.SupportedClasses
+import com.reach.app.grounding.lookOf
+import com.reach.app.grounding.safeCrop
 import com.reach.app.hand.HandTracker
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,6 +32,8 @@ import java.util.concurrent.atomic.AtomicInteger
  *   replay:  adb shell am start -f 0x20000000 -n com.reach.app/.MainActivity --es replay eval_images \
  *              [--es model efficientdet_lite2.tflite] [--ei loops 5]
  * The model is an APK asset, or a .tflite pushed into the app's files dir (so candidates need no rebuild).
+ * Supported detections also carry the app's pixel measurements of their crop (luma, contrast) and, when the image
+ * embedder is installed, its embedding ("emb", for registered-object matching: IdentityEval).
  * Output: files/eval/predictions_<model>.jsonl, one JSON object per image plus a final {"summary": ...} line
  * with latency percentiles, memory and thermal state; "replay done" is logged under the REACH-REPLAY tag.
  */
@@ -51,14 +58,15 @@ class DebugFrames(private val context: Context) {
             ?.sortedBy { it.name }.orEmpty()
         Log.i(TAG, "replay $dirName: ${files.size} frames, model=$model loops=$loops")
         val out = File(context.filesDir, "eval/predictions_${model.substringBeforeLast('.')}.jsonl").apply { parentFile?.mkdirs() }
-        var detector: ObjectDetector? = null; var hands: HandTracker? = null
+        var detector: ObjectDetector? = null; var hands: HandTracker? = null; var embedder: CropEmbedder? = null
         try {
             val local = File(context.filesDir, model)
             val base = BaseOptions.builder().apply { if (local.exists()) setModelAssetBuffer(direct(local)) else setModelAssetPath(model) }.build()
             detector = ObjectDetector.createFromOptions(context, ObjectDetector.ObjectDetectorOptions.builder()
                 .setBaseOptions(base).setRunningMode(RunningMode.IMAGE).setScoreThreshold(0.1f).setMaxResults(25).build())
             hands = HandTracker(context)
-            val detMs = ArrayList<Double>(); val handMs = ArrayList<Double>()
+            embedder = CropEmbedder.create(context)
+            val detMs = ArrayList<Double>(); val handMs = ArrayList<Double>(); val embMs = ArrayList<Double>()
             val power = context.getSystemService(PowerManager::class.java)
             fun thermal() = if (Build.VERSION.SDK_INT >= 29) power.currentThermalStatus else -1
             val thermalStart = thermal(); val t0 = System.nanoTime()
@@ -82,8 +90,17 @@ class DebugFrames(private val context: Context) {
                             put("det_ms", (b - a) / 1e6); put("hand_ms", (c - b) / 1e6); put("luma", meanLuma(bmp))
                             put("dets", JSONArray().apply { dets.forEach { d ->
                                 val cat = d.categories()[0]; val r = d.boundingBox()
+                                val box = Box.clamped(r.left / bmp.width, r.top / bmp.height, r.right / bmp.width, r.bottom / bmp.height)
                                 put(JSONObject().put("label", cat.categoryName()).put("score", cat.score().toDouble())
-                                    .put("box", JSONArray(listOf(r.left / bmp.width, r.top / bmp.height, r.right / bmp.width, r.bottom / bmp.height).map { it.toDouble() })))
+                                    .put("box", JSONArray(listOf(r.left / bmp.width, r.top / bmp.height, r.right / bmp.width, r.bottom / bmp.height).map { it.toDouble() }))
+                                    .apply { // the app's own pixel measurement, for its dark-box check (supported classes only, as the app)
+                                        val crop = if (cat.categoryName() in SupportedClasses.DETECTED && box.isValid()) safeCrop(bmp, box) else null
+                                        crop?.let(::lookOf)?.let { put("luma", it.luma.toDouble()).put("contrast", it.contrast.toDouble()) }
+                                        if (crop != null) embedder?.let { e ->
+                                            val t = System.nanoTime(); val v = e.embed(crop); embMs += (System.nanoTime() - t) / 1e6
+                                            put("emb", JSONArray(v.map { Math.round(it * 1e4) / 1e4 }))
+                                        }
+                                    })
                             } })
                             put("hands", JSONArray().apply { hs.forEach { h ->
                                 put(JSONObject().put("score", h.score.toDouble())
@@ -96,13 +113,13 @@ class DebugFrames(private val context: Context) {
                 val pss = Debug.getPss() / 1024.0
                 w.write(JSONObject().put("summary", JSONObject().apply {
                     put("model", model); put("frames", files.size); put("loops", loops); put("device", Build.MODEL)
-                    put("det_ms", pct(detMs)); put("hand_ms", pct(handMs)); put("pss_mb", pss)
+                    put("det_ms", pct(detMs)); put("hand_ms", pct(handMs)); put("emb_ms", pct(embMs)); put("pss_mb", pss)
                     put("thermal_start", thermalStart); put("thermal_end", thermal()); put("wall_s", (System.nanoTime() - t0) / 1e9)
                 }).toString()); w.newLine()
             }
             Log.i(TAG, "replay done -> ${out.path} det_ms=${pct(detMs)} hand_ms=${pct(handMs)}")
         } catch (e: Exception) { Log.e(TAG, "replay failed", e) }
-        finally { detector?.close(); hands?.close() }
+        finally { detector?.close(); hands?.close(); embedder?.close() }
     }
 
     fun close() { io.shutdown() }

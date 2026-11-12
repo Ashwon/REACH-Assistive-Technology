@@ -7,7 +7,6 @@ import com.reach.app.BuildConfig
 import com.reach.app.grounding.Candidate
 import com.reach.app.grounding.SupportedClasses
 import com.reach.app.grounding.TargetPick
-import com.reach.app.grounding.TargetSpec
 import com.reach.app.grounding.clarifyQuestion
 import com.reach.app.grounding.pickTarget
 import kotlinx.coroutines.Dispatchers
@@ -35,8 +34,7 @@ data class Interpretation(
     val confidence: Double,
     val needsClarification: Boolean,
     val question: String,          // clarification question or spoken ack
-    val fromClaude: Boolean,
-    val ambiguousSpec: TargetSpec? = null   // offline only: several matches, waiting for "left"/"right"
+    val fromClaude: Boolean
 )
 
 class ClaudeClient {
@@ -48,6 +46,8 @@ class ClaudeClient {
 
     suspend fun interpret(utterance: String, candidates: List<Candidate>): Interpretation =
         withContext(Dispatchers.IO) {
+            // A category REACH cannot find is answered locally, the same way every time; Claude never re-maps it.
+            if (SupportedClasses.resolve(utterance)?.supported == false) return@withContext interpretLocal(utterance, candidates)
             try {
                 val body = JSONObject().apply {
                     put("utterance", utterance)
@@ -97,15 +97,14 @@ class ClaudeClient {
     fun interpretLocal(utterance: String, candidates: List<Candidate>): Interpretation {
         val spec = SupportedClasses.resolve(utterance)
             ?: return Interpretation("UNKNOWN", "", -1, 0.0, true,
-                "I didn't catch which object you want. Try bottle, cup, phone, or chair.", false)
-        if (!spec.supported) return Interpretation("REACH_OBJECT", spec.name, -1, 0.0, true,
-            "I can't recognise ${spec.name}s yet. My detector has no class for them.", false)
+                "I didn't catch which object you want. ${SupportedClasses.SUPPORTED_LINE}", false)
+        if (!spec.supported) return Interpretation("REACH_OBJECT", spec.name, -1, 0.0, true, SupportedClasses.cannotFind(spec), false)
         return when (val pick = pickTarget(spec, candidates)) {
             is TargetPick.One ->
                 Interpretation("REACH_OBJECT", spec.name, pick.c.id, pick.c.score.toDouble(), false, "", false)
             is TargetPick.Ambiguous ->
                 Interpretation("REACH_OBJECT", spec.name, -1, 0.0, true,
-                    clarifyQuestion(spec, pick.options.size), false, ambiguousSpec = spec)
+                    "I can help. " + clarifyQuestion(spec, pick.options.size), false)
             TargetPick.None ->
                 Interpretation("REACH_OBJECT", spec.name, -1, 0.0, true,
                     "I can't see a ${spec.name} right now. Try panning slowly.", false)

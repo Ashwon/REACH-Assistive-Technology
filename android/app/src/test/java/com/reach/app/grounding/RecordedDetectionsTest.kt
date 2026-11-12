@@ -1,7 +1,5 @@
 package com.reach.app.grounding
 
-import com.reach.app.Mode
-import com.reach.app.ReachCore
 import com.reach.app.claude.ClaudeClient
 import org.junit.Assert.*
 import org.junit.Test
@@ -45,7 +43,7 @@ class RecordedDetectionsTest {
         assertTrue(replay(frames).all { it.isEmpty() })
     }
 
-    @Test fun personLyingWithABlackLaptopIsNotConfidentlyNamedAndTheLaptopIsNotCalledABag() {
+    @Test fun personLyingWithABlackLaptopIsNotOfferedAndTheLaptopIsNotCalledABag() {
         val frames = load("person_laptop_floor_a15.txt")
         assertEquals(30, frames.size)
         val out = replay(frames)
@@ -54,17 +52,12 @@ class RecordedDetectionsTest {
         assertTrue(frames.all { f -> f.dets.any { it.label == "backpack" && it.score < MIN_SCORE } })
         assertTrue(frames.none { f -> f.dets.any { it.label == "laptop" && it.score >= MIN_SCORE } })
         assertTrue(out.flatten().none { it.label in setOf("backpack", "handbag", "laptop") })
-        // The lying person is "bed" (0.50) in 25 frames and "person" (0.50) in 5: a class conflict, so not "sure".
-        val persons = out.flatten().filter { it.label == "person" }
-        assertTrue(persons.isNotEmpty()); assertTrue(persons.all { !it.sure })
-        assertTrue(persons.map { "${it.id} ${it.conflict} ${it.box}" }.toString(), persons.all { it.conflict == "bed" })
-        // "find my bag" / "find my laptop" say they can't see one; "find the person" says it can't tell.
-        assertTrue(ClaudeClient().interpretLocal("find my bag", out.last { it.isNotEmpty() }).needsClarification)
-        assertTrue(ClaudeClient().interpretLocal("find my laptop", out.last { it.isNotEmpty() }).needsClarification)
-        val spoken = ArrayList<String>()
-        val core = ReachCore({ spoken += it })
-        core.onSearchResult(core.beginSearch(), persons.last(), "person", 0.5, true, "", 0)
-        assertEquals(Mode.IDLE, core.mode)
-        assertEquals("I can't tell if that's a person or a bed. Move the camera a little and ask again.", spoken.last())
+        // The lying person is "bed" (0.50) or "person" (0.50): neither is a class REACH offers as a target.
+        assertTrue(frames.any { f -> f.dets.any { it.label == "person" && it.score >= MIN_SCORE } })
+        assertTrue(out.flatten().none { it.label == "person" || it.label == "bed" })
+        // "find my bag" / "find my laptop" say they can't see one; "find the person" says people are not targets.
+        assertTrue(ClaudeClient().interpretLocal("find my bag", out.last()).needsClarification)
+        assertTrue(ClaudeClient().interpretLocal("find my laptop", out.last()).needsClarification)
+        assertEquals("I only help find objects, not people.", ClaudeClient().interpretLocal("find the person", out.last()).question)
     }
 }

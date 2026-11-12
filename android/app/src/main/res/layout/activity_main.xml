@@ -1,125 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Portrait, chest-mounted. Top to bottom: brand + quick controls, live camera with status,
-     the current instruction, then the request field and the one or two actions that apply now. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Camera-first, portrait, chest-mounted. The live camera fills the screen edge to edge; status sits on top,
+     the current instruction and the request/actions sit in a compact bottom overlay. Insets (status bar,
+     cutout, navigation bar, keyboard) are applied to topBar / bottomBar in MainActivity. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
-    android:orientation="vertical"
-    android:paddingHorizontal="16dp"
-    android:paddingTop="8dp"
-    android:paddingBottom="12dp">
+    android:background="#000000">
 
-    <!-- Brand and quick controls -->
+    <!-- Wide mode: the real CameraX preview, scaled to fill (sides cropped on screen only) -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/preview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@string/camera_view_desc"
+        app:implementationMode="compatible"
+        app:scaleType="fillCenter" />
+
+    <!-- Depth mode: the exact frame the models analyse, scaled the same way -->
+    <ImageView
+        android:id="@+id/arPreview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@string/camera_view_desc"
+        android:scaleType="centerCrop"
+        android:visibility="gone" />
+
+    <!-- Hosts ARCore's 1x1 GL surface (Session.update needs a GL context) -->
+    <FrameLayout
+        android:id="@+id/glHost"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:importantForAccessibility="no" />
+
+    <com.reach.app.ui.OverlayView
+        android:id="@+id/overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+
+    <!-- Top: what the system is doing, what it sees, quick controls -->
     <LinearLayout
+        android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_gravity="top"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="8dp">
 
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/brand"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:accessibilityHeading="true"
-                android:text="@string/app_name"
-                android:textAppearance="@style/TextAppearance.Reach.Brand" />
-
-            <TextView
-                android:id="@+id/tagline"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/tagline"
-                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                android:textColor="@color/reach_text_secondary" />
-        </LinearLayout>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnHand"
-            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_marginEnd="4dp"
-            android:contentDescription="@string/set_hand_desc"
-            app:icon="@drawable/ic_hand"
-            app:iconSize="26dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSpeech"
-            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:contentDescription="@string/speech_on_desc"
-            app:icon="@drawable/ic_volume_up"
-            app:iconSize="26dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSettings"
-            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_marginStart="4dp"
-            android:contentDescription="@string/settings_desc"
-            app:icon="@drawable/ic_tune"
-            app:iconSize="26dp" />
-    </LinearLayout>
-
-    <!-- Live camera: the real CameraX preview, letterboxed so nothing the detector sees is cropped -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/cameraCard"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="12dp"
-        android:layout_weight="1"
-        android:minHeight="180dp"
-        app:cardBackgroundColor="#000000"
-        app:cardCornerRadius="24dp"
-        app:cardElevation="0dp"
-        app:strokeColor="@color/reach_outline"
-        app:strokeWidth="1dp">
-
-        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent">
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <androidx.camera.view.PreviewView
-                android:id="@+id/preview"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:contentDescription="@string/camera_view_desc"
-                app:implementationMode="compatible"
-                app:scaleType="fitCenter" />
-
-            <com.reach.app.ui.OverlayView
-                android:id="@+id/overlay"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:importantForAccessibility="no" />
-
-            <!-- What the system is doing right now -->
             <LinearLayout
                 android:id="@+id/statusPill"
                 style="@style/Widget.Reach.Pill"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_gravity="top|start"
-                android:layout_margin="12dp"
+                android:layout_weight="1"
                 android:focusable="true"
-                android:minHeight="40dp"
+                android:minHeight="48dp"
                 android:orientation="horizontal">
 
                 <View
                     android:id="@+id/statusDot"
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="12dp"
+                    android:layout_height="12dp"
                     android:layout_marginEnd="8dp"
                     android:background="@drawable/bg_dot"
                     android:importantForAccessibility="no" />
@@ -128,129 +78,131 @@
                     android:id="@+id/statusText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:textAppearance="@style/TextAppearance.Reach.Pill"
                     android:textSize="17sp" />
             </LinearLayout>
 
-            <!-- What the camera currently recognises -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|start"
-                android:layout_margin="12dp"
-                android:orientation="vertical">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnHand"
+                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="6dp"
+                android:contentDescription="@string/set_hand_desc"
+                app:icon="@drawable/ic_hand"
+                app:iconSize="24dp" />
 
-                <TextView
-                    android:id="@+id/chipObject"
-                    style="@style/Widget.Reach.Pill"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnHelp"
+                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:contentDescription="@string/help_desc"
+                app:icon="@drawable/ic_help"
+                app:iconSize="24dp" />
 
-                <TextView
-                    android:id="@+id/chipHand"
-                    style="@style/Widget.Reach.Pill"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:visibility="gone" />
-            </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSpeech"
+                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:contentDescription="@string/speech_on_desc"
+                app:icon="@drawable/ic_volume_up"
+                app:iconSize="24dp" />
 
-            <!-- Shown instead of a live view when the camera or recognition cannot run -->
-            <LinearLayout
-                android:id="@+id/cameraMessage"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@color/reach_surface"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:padding="24dp"
-                android:visibility="gone">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSettings"
+                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:contentDescription="@string/settings_desc"
+                app:icon="@drawable/ic_tune"
+                app:iconSize="24dp" />
+        </LinearLayout>
 
-                <ImageView
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/ic_videocam_off"
-                    app:tint="@color/reach_text_secondary" />
+        <TextView
+            android:id="@+id/chipObject"
+            style="@style/Widget.Reach.Pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:visibility="gone" />
 
-                <TextView
-                    android:id="@+id/cameraMessageTitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:accessibilityHeading="true"
-                    android:gravity="center"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
-                    android:textColor="@color/reach_text" />
+        <TextView
+            android:id="@+id/chipHand"
+            style="@style/Widget.Reach.Pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:visibility="gone" />
 
-                <TextView
-                    android:id="@+id/cameraMessageBody"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:gravity="center"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                    android:textColor="@color/reach_text_secondary" />
+        <TextView
+            android:id="@+id/chipDistance"
+            style="@style/Widget.Reach.Pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:visibility="gone" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnCameraAction"
-                    android:layout_width="wrap_content"
-                    android:layout_height="56dp"
-                    android:layout_marginTop="16dp"
-                    android:text="@string/allow_camera"
-                    android:textSize="17sp"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </FrameLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <!-- The current instruction, from the guidance engine -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/guidanceCard"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        app:cardBackgroundColor="@color/reach_surface"
-        app:cardCornerRadius="24dp"
-        app:cardElevation="0dp"
-        app:strokeWidth="0dp">
-
+        <!-- Orientation recovery and the vibration band, side by side to stay compact -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingVertical="16dp">
+            android:orientation="horizontal">
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/chipTurn"
+                style="@style/Widget.Reach.Pill"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:layout_marginTop="6dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone" />
 
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:importantForAccessibility="no"
-                    android:text="@string/guidance_label"
-                    android:textAppearance="@style/TextAppearance.Reach.Label" />
+            <TextView
+                android:id="@+id/chipHaptic"
+                style="@style/Widget.Reach.Pill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
 
-                <TextView
-                    android:id="@+id/guidanceMode"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/direction_only"
-                    android:textAppearance="@style/TextAppearance.Reach.Label"
-                    android:textColor="@color/reach_warn"
-                    android:visibility="gone" />
-            </LinearLayout>
+    <!-- Bottom: the current instruction, then the request field and the actions that apply now -->
+    <LinearLayout
+        android:id="@+id/bottomBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_bottom_scrim"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp">
+
+        <LinearLayout
+            android:id="@+id/guidanceCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="4dp">
+
+            <TextView
+                android:id="@+id/guidanceMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/direction_only"
+                android:textAppearance="@style/TextAppearance.Reach.Label"
+                android:textColor="@color/reach_warn"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/guidanceText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
                 android:ellipsize="end"
                 android:maxLines="2"
                 android:textAppearance="@style/TextAppearance.Reach.Guidance" />
@@ -260,85 +212,137 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                 android:textColor="@color/reach_text_secondary" />
 
             <TextView
                 android:id="@+id/lastSpoken"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="2dp"
                 android:ellipsize="end"
-                android:maxLines="2"
-                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                 android:textColor="@color/reach_text_secondary"
                 android:visibility="gone" />
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
 
-    <!-- Request: typed or spoken -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/inputLayout"
-        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:hint="@string/input_hint"
-        app:boxCornerRadiusBottomEnd="20dp"
-        app:boxCornerRadiusBottomStart="20dp"
-        app:boxCornerRadiusTopEnd="20dp"
-        app:boxCornerRadiusTopStart="20dp"
-        app:endIconContentDescription="@string/mic_desc"
-        app:endIconDrawable="@drawable/ic_mic"
-        app:endIconMode="custom"
-        app:helperTextEnabled="true">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/inputText"
+        <!-- Request: typed or spoken -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/inputLayout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:maxLines="1"
-            android:minHeight="60dp"
-            android:textSize="19sp" />
-    </com.google.android.material.textfield.TextInputLayout>
+            android:layout_marginTop="8dp"
+            android:hint="@string/input_hint"
+            app:boxBackgroundColor="@color/reach_surface"
+            app:boxCornerRadiusBottomEnd="16dp"
+            app:boxCornerRadiusBottomStart="16dp"
+            app:boxCornerRadiusTopEnd="16dp"
+            app:boxCornerRadiusTopStart="16dp"
+            app:endIconContentDescription="@string/mic_desc"
+            app:endIconDrawable="@drawable/ic_mic"
+            app:endIconMode="custom"
+            app:helperTextEnabled="true">
 
-    <!-- Only the actions that make sense in the current state are shown -->
-    <LinearLayout
-        android:id="@+id/actions"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/inputText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLines="1"
+                android:minHeight="52dp"
+                android:textSize="18sp" />
+        </com.google.android.material.textfield.TextInputLayout>
 
-        <!-- Heights wrap (min 64dp) so large font sizes wrap instead of clipping. -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnStop"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
+        <!-- Only the actions that make sense in the current state are shown -->
+        <LinearLayout
+            android:id="@+id/actions"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:layout_weight="1"
-            android:minHeight="64dp"
-            android:paddingHorizontal="12dp"
-            android:text="@string/cancel"
-            android:textSize="18sp"
-            android:visibility="gone"
-            app:cornerRadius="20dp" />
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnPrimary"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1.6"
-            android:minHeight="64dp"
-            android:text="@string/find_object"
-            android:textSize="19sp"
-            android:textStyle="bold"
-            app:cornerRadius="20dp"
-            app:icon="@drawable/ic_search"
-            app:iconGravity="textStart"
-            app:iconSize="24dp" />
+            <!-- Heights wrap (min 56dp) so large font sizes wrap instead of clipping. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStop"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:minHeight="56dp"
+                android:paddingHorizontal="12dp"
+                android:text="@string/cancel"
+                android:textColor="@color/reach_text"
+                android:textSize="17sp"
+                android:visibility="gone"
+                app:cornerRadius="18dp"
+                app:strokeColor="@color/reach_text_secondary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPrimary"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.6"
+                android:minHeight="56dp"
+                android:text="@string/find_object"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                app:cornerRadius="18dp"
+                app:icon="@drawable/ic_search"
+                app:iconGravity="textStart"
+                app:iconSize="22dp" />
+        </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+
+    <!-- Shown instead of a live view when the camera or recognition cannot run -->
+    <LinearLayout
+        android:id="@+id/cameraMessage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/reach_surface"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_videocam_off"
+            app:tint="@color/reach_text_secondary" />
+
+        <TextView
+            android:id="@+id/cameraMessageTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:accessibilityHeading="true"
+            android:gravity="center"
+            android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+            android:textColor="@color/reach_text" />
+
+        <TextView
+            android:id="@+id/cameraMessageBody"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+            android:textColor="@color/reach_text_secondary" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCameraAction"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/allow_camera"
+            android:textSize="17sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

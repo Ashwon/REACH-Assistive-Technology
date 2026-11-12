@@ -18,29 +18,51 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.graphics.Bitmap
+import android.widget.RadioButton
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.reach.app.camera.ArCoreSource
 import com.reach.app.camera.CameraXSource
 import com.reach.app.claude.ClaudeClient
 import com.reach.app.databinding.ActivityMainBinding
 import com.reach.app.databinding.SheetSettingsBinding
+import com.reach.app.grounding.CropEmbedder
+import com.reach.app.grounding.ObjectStore
 import com.reach.app.grounding.LocalDetectorGrounder
+import com.reach.app.grounding.TrackStatus
+import com.reach.app.haptic.BandSetup
+import com.reach.app.haptic.BleBand
+import com.reach.app.haptic.IntroState
+import com.reach.app.haptic.SetupStep
 import com.reach.app.hand.HandTracker
+import com.reach.app.spatial.DepthFrame
+import com.reach.app.spatial.HeadingSensor
+import com.reach.app.talk.Tutorial
 import com.reach.app.speech.Speaker
 import com.reach.app.speech.VoiceInput
 import com.reach.app.ui.CameraState
 import com.reach.app.ui.Line
 import com.reach.app.ui.ReachStatus
 import com.reach.app.ui.Tone
+import java.io.File
 
 /**
- * The one screen. Every view is driven by [ReachSnapshot]s from the controller (real per-frame state);
- * a 10 Hz main-thread loop renders the latest one, so inference never waits on the UI and spoken
+ * The one screen, camera first. Every view is driven by [ReachSnapshot]s from the controller (real per-frame
+ * state); a 10 Hz main-thread loop renders the latest one, so inference never waits on the UI and spoken
  * guidance (issued by the controller on the camera thread) never waits on rendering.
+ *
+ * Two camera modes feed the same controller: CameraX on a chosen lens (widest by default; 2D guidance), or an
+ * ARCore session on the main camera (adds a depth map). Only one owns the camera at a time; ARCore failing for
+ * any reason returns to CameraX. Switching keeps the models and controller running and resets target + hand.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -49,9 +71,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var controller: ReachController
     private lateinit var speaker: Speaker
     private lateinit var voice: VoiceInput
+    private lateinit var heading: HeadingSensor
+    private val band by lazy { BleBand.get(this) }
     private val prefs by lazy { getSharedPreferences("reach", MODE_PRIVATE) }
+    private val bandPrefs by lazy { BandSetupActivity.prefs(this) }
+    private val bandListener = { onBandChanged() }
+    private var bandWasLive = false
+    private var warnedUntested: String? = null
+    private var bandStatusView: TextView? = null // the settings sheet's band line while it is open
 
     @Volatile private var snapshot: ReachSnapshot? = null
+    private var arcore: ArCoreSource? = null
+    private var depthFailed: String? = null // why depth mode could not run this session
+    private var diagView: TextView? = null  // the settings sheet's diagnostics while it is open
+    private val arFrame = java.util.concurrent.atomic.AtomicReference<Bitmap?>()
     @Volatile private var lastFrameAt = 0L
     @Volatile private var lastSpoken: String? = null
     private var pipelineStartedAt = 0L
@@ -69,6 +102,13 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             if (granted(Manifest.permission.CAMERA)) startPipeline() else blocker = Blocker.CAMERA_PERMISSION
             updateMicHelper()
+            if (bandPrefs.get(BandSetup.KEY_STATE) == "done") band.connect() // a returning user's band; no-op if already up
+        }
+
+    /** The introduction / band setup (every launch, or settings): back here, the camera and microphone are asked for. */
+    private val setupLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (!::controller.isInitialized && !isFinishing) requestStartupPermissions()
         }
 
     private val micLauncher =
@@ -81,6 +121,16 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Edge to edge: the camera runs behind the system bars; only the overlays are inset from them.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val gap = (8 * resources.displayMetrics.density).toInt()
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            binding.topBar.updatePadding(top = bars.top + gap, left = bars.left + gap, right = bars.right + gap)
+            binding.bottomBar.updatePadding(bottom = maxOf(bars.bottom, ime.bottom) + gap, left = bars.left + gap, right = bars.right + gap)
+            insets
+        }
         // Chest-mounted and used by voice: a screen timeout would stop the camera.
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -90,6 +140,7 @@ class MainActivity : AppCompatActivity() {
             onSpoken = { lastSpoken = it } // any thread; rendered by the UI loop
         }
         voice = VoiceInput(this)
+        heading = HeadingSensor(this) { deg, ts -> if (::controller.isInitialized) controller.onHeading(deg, ts) }
 
         binding.btnPrimary.setOnClickListener { onPrimary() }
         binding.btnStop.setOnClickListener { if (::controller.isInitialized) controller.reset() }
@@ -102,31 +153,71 @@ class MainActivity : AppCompatActivity() {
             if (::controller.isInitialized) controller.beginHandSetup() else speaker.say(getString(R.string.spoken_no_camera))
         }
         binding.btnSpeech.setOnClickListener { setSpeech(!speaker.enabled, announce = true) }
+        binding.btnHelp.setOnClickListener { help() }
         binding.btnSettings.setOnClickListener { showSettings() }
         binding.btnCameraAction.setOnClickListener { requestCamera() }
         renderSpeechButton()
 
-        permLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+        // Every launch starts at the introduction, then the band setup, then the camera. Only a screen recreated within a
+        // live process (introduction done or still open) skips it; a stored preference never does.
+        if (BandSetup.showIntro(BandSetupActivity.intro, restored = savedInstanceState != null))
+            setupLauncher.launch(BandSetupActivity.intent(this, SetupStep.WELCOME, startup = true))
+        else if (BandSetupActivity.intro != IntroState.OPEN) requestStartupPermissions()
     }
+
+    private fun requestStartupPermissions() {
+        val bandPerms = if (bandPrefs.get(BandSetup.KEY_STATE) == "done") BleBand.permissions.toList() else emptyList()
+        permLauncher.launch((listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO) + bandPerms).toTypedArray())
+    }
+
+    /** Main thread, on every band state change: live haptics only for the band that passed setup; changes are spoken too. */
+    private fun onBandChanged() {
+        val addr = band.address.takeIf { band.ready }
+        band.liveEnabled = BandSetup.liveAllowed(bandPrefs, addr)
+        val live = band.connected
+        if (live != bandWasLive) speaker.say(getString(if (live) R.string.spoken_band_on else R.string.spoken_band_lost), interrupt = false)
+        bandWasLive = live
+        if (addr != null && !live && bandPrefs.get(BandSetup.KEY_STATE) == "done" && addr != warnedUntested) {
+            warnedUntested = addr
+            speaker.say(getString(R.string.spoken_band_untested), interrupt = false)
+        }
+        bandStatusView?.let { setIfChanged(it, bandLine()) }
+    }
+
+    private fun bandOff() = BandSetup.offReason(bandPrefs, band.state, band.address)
+
+    private fun bandLine() = "Band: ${band.state.words}. Haptic guidance: ${bandOff()?.let { "off ($it)" } ?: "on"}."
 
     override fun onStart() {
         super.onStart()
         // The camera restarts with the lifecycle: show "Starting camera" until frames flow again.
         lastFrameAt = 0L; pipelineStartedAt = SystemClock.uptimeMillis()
         main.post(renderLoop)
+        band.onChange = bandListener
+        onBandChanged()
     }
 
     override fun onResume() {
         super.onResume()
         // Back from system settings with the camera now allowed.
         if (blocker == Blocker.CAMERA_PERMISSION && granted(Manifest.permission.CAMERA)) startPipeline()
+        arcore?.resume()
+        heading.start()
         updateMicHelper()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        arcore?.pause() // CameraX follows the lifecycle by itself; ARCore must release the camera explicitly
+        heading.stop()
     }
 
     override fun onStop() {
         super.onStop()
         main.removeCallbacks(renderLoop)
         pulse(binding.statusDot, false)
+        if (band.onChange === bandListener) band.onChange = null
+        band.stop() // no frames while stopped: nothing may keep vibrating from a state that is no longer checked
     }
 
     private fun startPipeline() {
@@ -140,28 +231,102 @@ class MainActivity : AppCompatActivity() {
             handTracker = handTracker,
             claude = ClaudeClient(),
             speaker = speaker,
-            scope = lifecycleScope
+            haptics = band,
+            scope = lifecycleScope,
+            embedder = CropEmbedder.create(this),
+            store = ObjectStore(File(filesDir, "objects"))
         ) { s ->
             snapshot = s
             binding.overlay.candidates = s.candidates
             binding.overlay.targetId = s.targetId
-            binding.overlay.hand = s.hand
+            binding.overlay.hiddenTarget = s.targetBox.takeIf { s.targetId >= 0 && s.track != TrackStatus.TRACKING }
+            binding.overlay.hands = listOf(s.left, s.right)
+            binding.overlay.guided = s.guided
             binding.overlay.others = s.otherHands
             binding.overlay.guiding = s.mode == Mode.GUIDING
+            binding.overlay.distance = ReachStatus.gapLabel(s)
+            if (s.frameW > 0) { binding.overlay.frameW = s.frameW; binding.overlay.frameH = s.frameH }
             binding.overlay.postInvalidate()
         }
 
-        camera = CameraXSource(this, this, binding.preview) { bmp, _ ->
-            // MediaPipe VIDEO mode wants monotonically increasing ms timestamps.
-            val now = SystemClock.uptimeMillis()
-            lastFrameAt = now
-            debugFrames?.onFrame(bmp, now)
-            controller.onFrame(bmp, now)
-        }
+        controller.chestMounted = prefs.getBoolean(PREF_CHEST, true)
+        camera = CameraXSource(this, this, binding.preview) { bmp, _ -> deliver(bmp, null) }
         pipelineStartedAt = SystemClock.uptimeMillis()
-        camera.start()
-        // Step one, before any search: establish which hand is the user's.
-        controller.beginHandSetup(getString(R.string.spoken_ready) + " ")
+        val saved = prefs.getString(PREF_CAMERA, null)
+        camera.start(saved.takeIf { it != CAMERA_DEPTH }) {
+            updateFov()
+            if (saved == CAMERA_DEPTH) selectCamera(CAMERA_DEPTH, announce = false)
+        }
+        // Step one, before any search: enrol the user's hands. The introduction is spoken on the first launch only.
+        // The introduction was just shown (BandSetupActivity, every launch); help still replays the full Tutorial.
+        val intro = getString(R.string.spoken_ready) + " "
+        controller.beginHandSetup(intro)
+    }
+
+    /** The help button / settings item: replays the introduction, describing the real current state. */
+    private fun help() {
+        if (::controller.isInitialized) controller.help()
+        else speaker.say(Tutorial.text(band.connected, depthMode = false, bothHandsEnrolled = false))
+    }
+
+    /** The bound CameraX lens's measured field of view, for the target's bearing (ARCore frames carry their own). */
+    private fun updateFov() {
+        camera.cameras.firstOrNull { it.id == camera.boundId }?.let { controller.fovDeg = it.fovDeg }
+    }
+
+    /** Any camera thread. MediaPipe VIDEO mode wants monotonically increasing ms timestamps. */
+    private fun deliver(bmp: Bitmap, depth: DepthFrame?) {
+        val now = SystemClock.uptimeMillis()
+        lastFrameAt = now
+        debugFrames?.onFrame(bmp, now)
+        controller.onFrame(bmp, now, depth)
+    }
+
+    /** Main thread. [choice]: a CameraX camera id, or [CAMERA_DEPTH] for ARCore. */
+    private fun selectCamera(choice: String, announce: Boolean = true) {
+        if (choice == CAMERA_DEPTH) {
+            if (arcore != null) return
+            camera.release() // ARCore needs the camera itself
+            binding.preview.visibility = View.GONE
+            binding.arPreview.visibility = View.VISIBLE
+            val src = ArCoreSource(this, binding.glHost,
+                onPreview = { bmp -> if (arFrame.getAndSet(bmp) == null) main.post(showArFrame) },
+                onFrame = { bmp, depth -> deliver(bmp, depth) },
+                onFailure = { reason -> depthModeFailed(reason) })
+            arcore = src
+            if (!src.start()) return // onFailure already switched back
+        } else {
+            stopDepthMode()
+            camera.switchTo(choice)
+            updateFov()
+        }
+        prefs.edit().putString(PREF_CAMERA, choice).apply()
+        lastFrameAt = 0L; pipelineStartedAt = SystemClock.uptimeMillis()
+        controller.depthMode = choice == CAMERA_DEPTH
+        controller.onCameraChanged(if (announce) getString(R.string.spoken_camera_changed) else "")
+    }
+
+    private val showArFrame = Runnable { arFrame.getAndSet(null)?.let { binding.arPreview.setImageBitmap(it) } }
+
+    private fun stopDepthMode() {
+        arcore?.stop(); arcore = null
+        main.removeCallbacks(showArFrame); arFrame.set(null)
+        binding.arPreview.setImageDrawable(null)
+        binding.arPreview.visibility = View.GONE
+        binding.preview.visibility = View.VISIBLE
+    }
+
+    /** Main thread, from ArCoreSource: back to the widest CameraX lens, and say why. */
+    private fun depthModeFailed(reason: String) {
+        depthFailed = reason
+        stopDepthMode()
+        val widest = camera.cameras.firstOrNull()?.id
+        if (widest != null) camera.switchTo(widest)
+        updateFov()
+        prefs.edit().remove(PREF_CAMERA).apply()
+        lastFrameAt = 0L; pipelineStartedAt = SystemClock.uptimeMillis()
+        controller.depthMode = false
+        controller.onCameraChanged(getString(R.string.spoken_depth_failed, reason))
     }
 
     private fun modelsFailed(e: Exception) {
@@ -250,9 +415,73 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putFloat(PREF_VOLUME, v).apply()
         }
         b.btnTestVoice.setOnClickListener { speaker.say(getString(R.string.spoken_test)) }
+        b.btnTutorial.setOnClickListener { sheet.dismiss(); help() }
+        b.btnHands.setOnClickListener {
+            sheet.dismiss()
+            if (::controller.isInitialized) controller.beginHandSetup() else speaker.say(getString(R.string.spoken_no_camera))
+        }
+        b.switchChest.isChecked = prefs.getBoolean(PREF_CHEST, true)
+        b.switchChest.setOnCheckedChangeListener { _, on ->
+            prefs.edit().putBoolean(PREF_CHEST, on).apply()
+            if (::controller.isInitialized) controller.chestMounted = on
+        }
         b.btnDepth.setOnClickListener { sheet.dismiss(); startActivity(Intent(this, DepthCheckActivity::class.java)) }
+        b.bandStatus.text = bandLine()
+        b.btnBandConnect.setOnClickListener {
+            if (BleBand.hasPermission(this)) band.connect(force = true) else permLauncher.launch(BleBand.permissions)
+        }
+        b.btnBandTest.setOnClickListener { sheet.dismiss(); setupLauncher.launch(BandSetupActivity.intent(this, SetupStep.LEFT)) }
+        b.btnBandReview.setOnClickListener { sheet.dismiss(); setupLauncher.launch(BandSetupActivity.intent(this, SetupStep.LEARN)) }
+        b.btnBandStop.setOnClickListener { band.stop() }
+        bandStatusView = b.bandStatus
+        fillCameraChoices(b.cameraGroup)
+        diagView = b.diagnostics
+        sheet.setOnDismissListener { diagView = null; bandStatusView = null }
         sheet.setContentView(b.root)
         sheet.show()
+    }
+
+    /** Real cameras only: what CameraX reports for this phone, plus depth mode unless it already failed here. */
+    private fun fillCameraChoices(group: android.widget.RadioGroup) {
+        if (!::camera.isInitialized) return
+        val current = if (arcore != null) CAMERA_DEPTH else camera.boundId
+        val choices = camera.cameras.mapIndexed { i, c ->
+            c.id to getString(R.string.camera_option, c.id, c.fovDeg.toInt(), if (i == 0 && camera.cameras.size > 1) getString(R.string.camera_widest) else "")
+        } + (CAMERA_DEPTH to (depthFailed?.let { getString(R.string.camera_depth_failed, it) } ?: getString(R.string.camera_depth)))
+        for ((id, label) in choices) {
+            group.addView(RadioButton(this).apply {
+                text = label; textSize = 17f; minHeight = (48 * resources.displayMetrics.density).toInt()
+                isChecked = id == current
+                isEnabled = !(id == CAMERA_DEPTH && depthFailed != null)
+                setOnClickListener { if (id != current) selectCamera(id) }
+            })
+        }
+    }
+
+    private fun diagnostics(): String {
+        val s = snapshot
+        val cam = when {
+            arcore != null -> "ARCore (main camera) ${arcore?.status}"
+            else -> camera.cameras.firstOrNull { it.id == camera.boundId }?.let { "CameraX id=${it.id} f=${it.focalMm}mm ${it.fovDeg.toInt()}° wide" }
+                ?: "CameraX (not bound)"
+        }
+        fun hv(v: HandView?) = v?.let { "${it.state} track#${it.trackId} conf=%.2f label=${it.label ?: "?"}".format(it.score) +
+            (if (it.missingMs > 0) " missing=${it.missingMs}ms" else "") + (if (it.reason.isNotEmpty()) " (${it.reason})" else "") } ?: "-"
+        return "camera: $cam\n" +
+            "frame: ${s?.frameW}x${s?.frameH}  ${controller.stats}\n" +
+            "mode: ${s?.mode}  target: ${s?.target}#${s?.targetId} ${s?.track}" +
+            (s?.identity?.let { " · saved object $it ${if (s.identityVerified) "photo-matched" else "checking"}" } ?: "") + "\n" +
+            "saved objects: " + controller.memory.objects.joinToString { "${it.name} (${it.label}, ${it.refs.size} photo${if (it.refs.size > 1) "s" else ""})" }
+                .ifEmpty { "none" } + (if (controller.photoMatching) "" else " · photo matching unavailable (model missing)") + "\n" +
+            "USER_LEFT_HAND: ${hv(s?.left)}\nUSER_RIGHT_HAND: ${hv(s?.right)}\n" +
+            "guided: ${s?.guided}  enrolling: ${s?.enrolling} ${s?.enrollStatus}  other hands: ${s?.otherHands?.size}\n" +
+            "heading: ${heading.description}  turn=${s?.turn} toTarget=${s?.turnDeg?.let { "%+.0f°".format(it) }} " +
+            "chest=${controller.chestMounted}\n" +
+            "band cue: ${s?.band} · ${bandOff()?.let { "live off ($it)" } ?: "live on"} · ${band.status}\n" +
+            "closer hand: ${s?.haptic}  dL=${s?.leftM} dR=${s?.rightM}\n" +
+            "depth: " + (s?.depth?.let { "${it.reason} targetZ=${it.targetM} tipZ(est)=${it.tipM} arTipZ=${it.arTipM}" }
+                ?: if (s?.depthSource == true) "on (measured only while guiding)" else "off (2D)") +
+            (depthFailed?.let { "\ndepth mode failed: $it" } ?: "")
     }
 
     // ---- Rendering (main thread, 10 Hz) ----
@@ -283,6 +512,10 @@ class MainActivity : AppCompatActivity() {
         pulse(binding.statusDot, status.tone == Tone.ACTIVE)
         chip(binding.chipObject, ReachStatus.objects(s))
         chip(binding.chipHand, ReachStatus.hand(s))
+        chip(binding.chipDistance, ReachStatus.distance(s))
+        chip(binding.chipTurn, ReachStatus.turn(s))
+        chip(binding.chipHaptic, ReachStatus.haptics(s, bandOff()).takeIf { s != null })
+        if (::controller.isInitialized) diagView?.let { setIfChanged(it, diagnostics()) }
 
         val g = ReachStatus.guidance(s, cam)
         if (setIfChanged(binding.guidanceText, g.headline)) {
@@ -290,7 +523,8 @@ class MainActivity : AppCompatActivity() {
             binding.guidanceText.animate().alpha(1f).setDuration(180).start()
         }
         setIfChanged(binding.guidanceDetail, g.detail)
-        binding.guidanceMode.visibility = if (g.directionOnly) View.VISIBLE else View.GONE
+        binding.guidanceMode.visibility = if (s?.mode == Mode.GUIDING) View.VISIBLE else View.GONE
+        setIfChanged(binding.guidanceMode, getString(if (g.directionOnly) R.string.direction_only else R.string.direction_distance))
         val spoken = lastSpoken
         val spokenLine = when {
             !speaker.enabled -> getString(R.string.speech_off_note)
@@ -423,8 +657,10 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         main.removeCallbacks(renderLoop)
+        arcore?.stop()
         if (::camera.isInitialized) camera.stop() // drain the analyzer before closing the native models
         if (::controller.isInitialized) controller.close()
+        if (isFinishing) band.disconnect() // leaving REACH: stop the motors and free the band
         debugFrames?.close()
         voice.destroy()
         speaker.shutdown()
@@ -433,5 +669,8 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val PREF_SPEECH = "speech_enabled"
         const val PREF_VOLUME = "speech_volume"
+        const val PREF_CAMERA = "camera"
+        const val CAMERA_DEPTH = "arcore"
+        const val PREF_CHEST = "chest_mounted"
     }
 }

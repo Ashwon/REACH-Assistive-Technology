@@ -9,7 +9,7 @@ import kotlin.random.Random
 /** Frames every 75 ms (~13 fps, as measured on the A15). Bottle box: centre (0.50, 0.55), 0.10 x 0.30. */
 class SpatialEngineTest {
     private val bottle = Box(0.45f, 0.40f, 0.55f, 0.70f)
-    private val e = SpatialEngine()
+    private var e = SpatialEngine()
     private var t = 0L
 
     /** Feeds frames for durMs and returns every reported cue. */
@@ -20,6 +20,9 @@ class SpatialEngineTest {
         while (t < end) { out += e.update(SpatialInput(target, tip?.first, tip?.second, depth, t)); t += 75 }
         return out
     }
+
+    /** An engine allowed to report "reached" from depth (production waits for the on-phone validation). */
+    private fun validated() { e = SpatialEngine(depthReachedValidated = true) }
 
     @Test fun thresholdsScaleWithTheBox() {
         assertEquals(0.035f, SpatialEngine.exitX(0.10f), 1e-6f); assertEquals(0.065f, SpatialEngine.enterX(0.10f), 1e-6f)
@@ -79,25 +82,64 @@ class SpatialEngineTest {
         }
     }
 
-    @Test fun depthGivesCloserThenStopThenReached() {
-        assertEquals(CLOSER, feed(600, depth = DepthSample(0.60f, 0.40f)).last())
-        val out = feed(1200, depth = DepthSample(0.60f, 0.59f))   // 1 cm apart (smoothed gap takes ~3 frames to get there)
+    @Test fun depthGivesCloserThenNearThenStopThenReached() {
+        validated()
+        assertEquals(CLOSER, feed(600, depth = DepthSample(0.60f, 0.40f, 0.20f)).last())  // 20 cm short
+        assertEquals(NEAR, feed(900, depth = DepthSample(0.60f, 0.50f, 0.10f)).last())    // 10 cm short
+        val out = feed(2000, depth = DepthSample(0.60f, 0.59f, 0.01f))                     // 1 cm apart
         val stop = out.indexOf(STOP); val reached = out.indexOf(REACHED)
-        assertTrue(out.toString(), stop in 4..8 && reached > stop) // "Stop." first, then "reached"
-        assertTrue(75 * reached >= SpatialEngine.REACH_HOLD_MS + SpatialEngine.CONFIRM_MS)
+        assertTrue(out.toString(), stop in 1 until reached) // "Stop." (hold still) first, then "reached"
+        assertTrue(75 * (reached - stop) >= SpatialEngine.REACH_HOLD_MS)
         assertEquals(REACHED, out.last())
-        e.reset(); assertEquals(STOP, feed(600, depth = DepthSample(0.60f, 0.70f)).last()) // fingertip past it
+        e.reset(); assertEquals(BACK, feed(600, depth = DepthSample(0.60f, 0.70f, 0.10f)).last()) // fingertip past it
+    }
+
+    @Test fun unvalidatedFingertipDepthNeverClaimsReachedOnlyThatTheUserShouldBeThere() {
+        val out = feed(5000, depth = DepthSample(0.60f, 0.60f, 0.0f))
+        assertEquals(AT_TARGET, out.last()); assertFalse(REACHED in out); assertFalse(STOP in out)
+        assertFalse(SpatialEngine.DEPTH_REACHED_VALIDATED) // flipped only after the tape-measure check passes on the phone
+    }
+
+    @Test fun reachedNeedsAKnown3dDistanceToo() {
+        validated()
+        val out = feed(3000, depth = DepthSample(0.60f, 0.60f)) // Z gap closed, but the 3D distance is unknown (NaN)
+        assertFalse(REACHED in out); assertEquals(NEAR, out.last())
+        e.reset()
+        assertFalse(REACHED in feed(3000, depth = DepthSample(0.60f, 0.60f, 0.25f))) // laterally 25 cm off in 3D
+    }
+
+    @Test fun distanceZonesHaveHysteresisSoNoiseAtABoundaryDoesNotFlipTheCue() {
+        feed(600, depth = DepthSample(0.60f, 0.40f, 0.2f)) // FAR: Move closer
+        val rnd = Random(3)
+        val out = (0 until 60).flatMap { // gap 0.14..0.16 around the 0.15 boundary
+            feed(75, depth = DepthSample(0.60f, 0.60f - (0.14f + rnd.nextFloat() * 0.02f), 0.15f))
+        }
+        assertTrue(out.toString(), out.all { it == CLOSER })
+    }
+
+    @Test fun alignmentAndDistanceAreSeparateLateralErrorsAlwaysWin() {
+        validated()
+        val out = feed(3000, tip = 0.30f to 0.55f, depth = DepthSample(0.60f, 0.60f, 0.0f))
+        assertEquals(RIGHT, out.last()); assertFalse(REACHED in out)
+        assertFalse(out.any { it == CLOSER || it == NEAR || it == BACK || it == AT_TARGET })
+    }
+
+    @Test fun aHeldDirectionIsDroppedOnTheFirstFrameWithoutAFingertip() {
+        assertEquals(RIGHT, feed(600, tip = 0.30f to 0.55f).last())
+        assertEquals(NONE, feed(75, tip = null).single()) // never "Move right." from a stale fingertip position
     }
 
     @Test fun reachedNeedsAlignmentToo() {
-        val out = feed(3000, tip = 0.30f to 0.55f, depth = DepthSample(0.60f, 0.60f))
+        validated()
+        val out = feed(3000, tip = 0.30f to 0.55f, depth = DepthSample(0.60f, 0.60f, 0.0f))
         assertEquals(RIGHT, out.last()); assertFalse(REACHED in out)
     }
 
     @Test fun oneInvalidDepthFrameRestartsTheContactHold() {
-        val first = feed(450, depth = DepthSample(0.60f, 0.60f))             // 0..375: contact begins
+        validated()
+        val first = feed(450, depth = DepthSample(0.60f, 0.60f, 0.0f))      // 0..375: contact begins
         val glitch = feed(75, depth = DepthSample(Float.NaN, 0.60f))         // 450
-        val after = feed(1500, depth = DepthSample(0.60f, 0.60f))            // 525..
+        val after = feed(1500, depth = DepthSample(0.60f, 0.60f, 0.0f))      // 525..
         assertFalse(REACHED in first + glitch)
         val firstReached = 525 + 75L * after.indexOf(REACHED)
         assertTrue("reached at $firstReached", firstReached >= 525 + 500 + 300) // full hold + confirm after the break

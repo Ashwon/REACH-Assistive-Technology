@@ -23,12 +23,14 @@ class VisionEvalRunTest {
         for (path in predictions.split(',')) {
             val pf = File(path)
             val run = VisionEval(spec, frames, loadPredictions(pf))
+            val ids = IdentityEval(frames, loadPredictions(pf)).run()
             val name = pf.nameWithoutExtension.removePrefix("predictions_")
             md.append(report(name, run, loadPredictions(pf).summary?.toString(), frames.size)).append("\n")
+                .append(IdentityEval.report(ids)).append("\n")
             json[name] = mapOf("counts" to listOf("model", "app", "sure").associateWith { run.counts(it) },
                 "ap50" to run.averagePrecision(), "confusion" to run.confusion(), "stability" to run.stability(),
                 "locking" to run.targetLocking(), "hands" to run.handIdentity(), "reach" to run.reachRuns(),
-                "latency" to run.latency(), "device_summary" to loadPredictions(pf).summary?.toString())
+                "latency" to run.latency(), "identity" to ids, "device_summary" to loadPredictions(pf).summary?.toString())
         }
         File(out, "report.md").writeText(md.toString())
         File(out, "report.json").writeText(GsonBuilder().serializeSpecialFloatingPointValues().setPrettyPrinting().create().toJson(json))

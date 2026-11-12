@@ -38,9 +38,12 @@ class HandTracker(context: Context) {
         val result = landmarker.detectForVideo(BitmapImageBuilder(frame).build(), timestampMs)
         // Landmarks are normalized to the bitmap we passed: the upright frame the detector also sees.
         return result.landmarks().mapIndexed { i, lm ->
+            val side = result.handednesses().getOrNull(i)?.firstOrNull()
             HandResult.fromLandmarks(
                 lm.map { Lm(it.x(), it.y(), it.z(), it.visibility().orElse(null), it.presence().orElse(null)) },
-                score = result.handednesses().getOrNull(i)?.firstOrNull()?.score() ?: 0f
+                score = side?.score() ?: 0f,
+                handedness = side?.categoryName(),
+                world = result.worldLandmarks().getOrNull(i)?.map { Lm(it.x(), it.y(), it.z()) } ?: emptyList()
             )
         }.filter { it.present }
     }

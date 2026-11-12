@@ -32,15 +32,15 @@ class CategorySpecTest {
     }
 
     @Test fun categoriesTheModelCannotRecogniseAreAnsweredHonestly() {
-        val none = spec().categories.filter { it.support == "none" }
-        assertTrue(none.any { it.name == "laptop bag" })
+        val none = spec().categories.filter { it.support == "none" || it.support == "excluded" }
+        assertTrue(none.any { it.name == "laptop bag" }); assertTrue(none.any { it.name == "person" })
         for (c in none) {
             assertTrue(c.modelLabels.isEmpty())
             assertFalse(c.name, SupportedClasses.resolve("find my ${c.name}")!!.supported)
         }
         // Before: "laptop bag" matched its shorter word and targeted the laptop.
         val r = ClaudeClient().interpretLocal("find my laptop bag", emptyList())
-        assertTrue(r.needsClarification); assertEquals("I can't recognise laptop bags yet. My detector has no class for them.", r.question)
+        assertTrue(r.needsClarification); assertTrue(r.question, r.question.startsWith("I can't tell a laptop bag from other bags."))
         assertEquals(setOf("bottle"), SupportedClasses.resolve("my water bottle")!!.labels)
     }
 }
@@ -90,5 +90,28 @@ class VisionEvalTest {
         assertEquals(mapOf("laptop" to 3), e.confusion()["laptop"])
         assertEquals(1, e.stability().single().detectedFrames)
         assertEquals(10.0 + 12.0, e.latency().getValue("det_p50") * 2, 1e-9)   // p50 of 10,11,12,14 -> 11
+    }
+
+    /** With the replay's pixel measurements, the app level applies the app's checks: a weak "laptop" on shadow is never offered. */
+    @Test fun weakBoxesOnDarkFeaturelessPixelsAreDroppedAtTheAppLevel() {
+        val dir = tmp.newFolder("dark")
+        File(dir, "annotations.json").writeText("""{"images":[""" + (1..3).joinToString(",") {
+            """{"id":$it,"file_name":"d$it.png","width":100,"height":100}""" } + """],"annotations":[],"categories":[]}""")
+        File(dir, "images.csv").writeText("file_name,session,sequence,frame_ms,lighting,synthetic,labeled\n" +
+            (1..3).joinToString("") { "d$it.png,s,s,${it * 300},dark,1,all\n" })
+        val lap = """{"label":"laptop","score":0.45,"box":[0.2,0.2,0.6,0.6]"""
+        val cup = """{"label":"cup","score":0.7,"box":[0.65,0.65,0.9,0.9]"""
+        fun write(name: String, px: String) = File(tmp.root, name).apply { writeText((1..3).joinToString("\n") {
+            """{"image":"d$it.png","det_ms":10,"hand_ms":5,"luma":20,"dets":[$lap$px},$cup$px}],"hands":[]}""" }) }
+        val frames = loadDataset(dir, spec())
+
+        val old = VisionEval(spec(), frames, loadPredictions(write("predictions_old.jsonl", "")))  // no pixels: old files
+        assertEquals(1, old.counts("app").getValue("laptop").fp)
+        val e = VisionEval(spec(), frames, loadPredictions(write("predictions_new.jsonl", ""","luma":12.0,"contrast":3.0""")))
+        assertEquals(3, e.counts("model").getValue("laptop").fp)                // the model fires every frame
+        assertEquals(0, e.counts("app").getValue("laptop").fp)                  // weak on shadow: dropped
+        assertEquals(1, e.counts("app").getValue("cup").fp)                     // strong: kept once confirmed...
+        assertEquals(0, e.counts("sure").getValue("cup").fp)                    // ...but never named as sure in the dark
+        assertFalse("wine glass" in e.counts("app"))                            // excluded categories are not scored
     }
 }

@@ -7,14 +7,23 @@ android/app/build/
 android/build/
 *.apk
 backend/__pycache__/
-# model files are downloaded, not committed (large)
-android/app/src/main/assets/*.task
-android/app/src/main/assets/*.tflite
+# runtime models in android/app/src/main/assets are committed (~18 MB); scripts/download_models.sh re-fetches them
 .DS_Store
 .claude/
-# candidate models and large recorded datasets stay local (dataset/seed is small and kept)
+# candidate models, recorded datasets and photos stay local; never commit images of people or rooms
 models/
 dataset/*/predictions/
 dataset/*/images/
-!dataset/seed/images/
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.mp4
 __pycache__/
+.idea/
+*.iml
+.pytest_cache/
+*.log
+*.jks
+.env.*
+!.env.example

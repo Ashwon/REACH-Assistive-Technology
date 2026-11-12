@@ -10,7 +10,7 @@
     <string name="stop_guidance">Stop Guidance</string>
     <string name="got_it">I’ve got it</string>
 
-    <string name="input_hint">What should I find?</string>
+    <string name="input_hint">Ask me, e.g. “can you find my bottle?”</string>
     <string name="mic_desc">Speak your request</string>
     <string name="listening">Listening…</string>
     <string name="mic_off_helper">Microphone access is off. Type your request, or tap the microphone to allow it.</string>
@@ -18,11 +18,16 @@
 
     <string name="speech_on_desc">Spoken guidance is on. Double-tap to turn it off.</string>
     <string name="speech_off_desc">Spoken guidance is off. Double-tap to turn it on.</string>
-    <string name="settings_desc">Voice and accessibility settings</string>
-    <string name="set_hand_desc">Set my hand. Raise the hand you will reach with, then close it into a fist.</string>
+    <string name="settings_desc">Camera, voice and diagnostics settings</string>
+    <string name="set_hand_desc">Set up my hands. Raise your left hand, then your right, closing each into a fist.</string>
+    <string name="help_desc">Help. Replays the spoken introduction.</string>
+    <string name="replay_intro">Replay introduction</string>
+    <string name="setup_hands">Set up both hands again</string>
+    <string name="chest_mounted">Phone is chest-mounted</string>
 
     <string name="guidance_label">Guidance</string>
     <string name="direction_only">Direction only · no distance</string>
+    <string name="direction_distance">Direction + distance · estimate</string>
     <string name="last_spoken">Last spoken: “%1$s”</string>
     <string name="speech_off_note">Speech is off. Instructions appear here only.</string>
 
@@ -36,11 +41,55 @@
     <string name="models_body">REACH couldn’t load its on-device recognition. Reinstall the app and try again.</string>
 
     <string name="settings_title">Voice &amp; accessibility</string>
+    <string name="camera_title">Camera</string>
+    <string name="camera_option">Camera %1$s · %2$d° wide%3$s</string>
+    <string name="camera_widest">" (widest)"</string>
+    <string name="camera_depth">Main camera + depth (ARCore) · experimental</string>
+    <string name="camera_depth_failed">Depth mode unavailable: %1$s</string>
+    <string name="camera_note">Wide view gives direction only. Depth mode uses the main camera and adds an estimated distance.</string>
+    <string name="diagnostics_title">Diagnostics</string>
+    <string name="spoken_camera_changed">"Camera changed. "</string>
+    <string name="spoken_depth_failed">"Depth mode isn’t available: %1$s. Back to the wide camera. "</string>
     <string name="spoken_guidance">Spoken guidance</string>
     <string name="guidance_volume">Guidance volume</string>
     <string name="test_voice">Test voice</string>
     <string name="depth_check">Depth sensor check (experimental)</string>
     <string name="depth_check_note">Opens a separate ARCore test screen. Guidance pauses while it is open.</string>
+
+    <!-- Vibration band setup -->
+    <string name="band_step">Step %1$d of %2$d</string>
+    <string name="band_status">Band: %1$s</string>
+    <string name="band_practice_label">Practice only · not live guidance</string>
+    <string name="band_stop">Stop vibration</string>
+    <string name="band_setup_start">Set up the band</string>
+    <string name="band_skip">Continue with voice only</string>
+    <string name="band_welcome_next">Continue to the vibration band</string>
+    <string name="band_connect">Connect the band</string>
+    <string name="band_connecting">Connecting…</string>
+    <string name="band_retry">Retry connection</string>
+    <string name="band_allow">Allow Bluetooth</string>
+    <string name="band_turn_on">Turn on Bluetooth</string>
+    <string name="band_unsupported">Bluetooth LE not available</string>
+    <string name="band_continue_test">Continue to motor test</string>
+    <string name="band_felt">Yes, I felt it on my %1$s</string>
+    <string name="band_play_again">Play it again</string>
+    <string name="band_not_felt">I didn’t feel it</string>
+    <string name="band_other_side">I felt it on my %1$s</string>
+    <string name="band_continue_anyway">Continue</string>
+    <string name="band_learned">I’ve learned the patterns</string>
+    <string name="band_done_review">Done reviewing</string>
+    <string name="band_pattern_text">%1$d. %2$s. %3$s</string>
+    <string name="band_play_pattern">Play: %1$s</string>
+    <string name="band_play_pattern_desc">Play the practice pattern for %1$s</string>
+    <string name="band_continue_reach">Continue to REACH</string>
+    <string name="band_test_again">Test again</string>
+    <string name="band_title">Vibration band</string>
+    <string name="band_reconnect">Connect / reconnect</string>
+    <string name="band_self_test">Motor self-test</string>
+    <string name="band_review">Review haptic instructions</string>
+    <string name="spoken_band_lost">"Vibration band disconnected. I'll keep guiding by voice. "</string>
+    <string name="spoken_band_on">"Vibration band connected. "</string>
+    <string name="spoken_band_untested">"A vibration band is connected, but it hasn't passed the motor test. Haptic guidance stays off until you test it in settings. "</string>
 
     <string name="spoken_ready">REACH ready.</string>
     <string name="spoken_speech_on">Spoken guidance on.</string>

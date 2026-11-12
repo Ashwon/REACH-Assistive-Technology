@@ -16,8 +16,9 @@
         <item name="colorOutline">@color/reach_outline</item>
         <item name="android:colorBackground">@color/reach_bg</item>
         <item name="android:windowBackground">@color/reach_bg</item>
-        <item name="android:statusBarColor">@color/reach_bg</item>
-        <item name="android:navigationBarColor">@color/reach_bg</item>
+        <!-- Edge-to-edge: the camera shows behind the system bars; overlays are inset in MainActivity. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
     <style name="TextAppearance.Reach.Brand" parent="TextAppearance.Material3.HeadlineSmall">
@@ -35,7 +36,7 @@
 
     <style name="TextAppearance.Reach.Guidance" parent="TextAppearance.Material3.HeadlineMedium">
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:textSize">32sp</item>
+        <item name="android:textSize">28sp</item>
         <item name="android:textColor">@color/reach_text</item>
     </style>
 

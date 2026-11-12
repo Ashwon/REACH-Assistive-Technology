@@ -23,7 +23,9 @@ data class Candidate(
     val crop: Bitmap?,        // small crop for Claude's thumbnail
     val confirmed: Boolean = true,  // seen in enough detector runs to be offered at all (CandidateTracker)
     val conflict: String? = null,   // another class the model reported for the same spot, e.g. "handbag" for a bottle
-    val lowLight: Boolean = false   // the frame was too dark for the detector to be trusted
+    val lowLight: Boolean = false,  // the frame (or this dark, featureless box) was too dark for the detector to be trusted
+    val look: Appearance? = null,   // colours of the box's centre, from [crop]; null when there are no pixels
+    val frameMs: Long = -1L         // camera time of the frame this box was measured in; -1 = unknown
 ) {
     /** Enough evidence to name it without hedging. Even then it is a detector's guess, never "verified". */
     val sure get() = confirmed && conflict == null && !lowLight && score >= STRONG_SCORE
@@ -74,6 +76,7 @@ class LocalDetectorGrounder(
         val dets = ArrayList<Det>()
         val rejected = ArrayList<String>()
         val near = ArrayList<String>()
+        val crops = HashMap<Det, Pair<Bitmap?, Appearance?>>()
         for (det in result.detections()) {
             val cat = det.categories().firstOrNull() ?: continue
             val name = cat.categoryName().lowercase()
@@ -82,10 +85,13 @@ class LocalDetectorGrounder(
                 b.left / frame.width, b.top / frame.height, b.right / frame.width, b.bottom / frame.height
             )
             val tag = "$name:${"%.2f".format(cat.score())}"
-            when (val why = rejectReason(cat.score(), box, minScore)) {
+            // Pixels only for classes we could surface, and only past the cheap checks.
+            val pix = if (name in allowed && rejectReason(cat.score(), box, minScore) == null)
+                safeCrop(frame, box).let { it to it?.let(::lookOf) } else null
+            when (val why = rejectReason(cat.score(), box, minScore, pix?.second)) {
                 "low" -> (if (name in allowed) near else rejected).add(tag)
                 // Unsupported classes are tracked too, only so a spot that is "bed" one frame and "person" the next shows as a conflict.
-                null -> dets.add(Det(name, cat.score(), box))
+                null -> Det(name, cat.score(), box).also { dets.add(it); if (pix != null) crops[it] = pix }
                 else -> rejected.add("$tag:$why")
             }
         }
@@ -93,10 +99,12 @@ class LocalDetectorGrounder(
         val luma = meanLuma(frame)
         val cands = dets.indices.filter { dets[it].label in allowed }.map { i ->
             val d = dets[i]; val ev = tracker.evidence(ids[i])!!
-            val crop = safeCrop(frame, d.box)
+            val (crop, look) = crops[d] ?: (null to null)
             val beverage = if (d.label in SupportedClasses.DRINK_CONTAINERS)
                 crop?.let { ColorClassifier.classify(it) } ?: "unknown" else "unknown"
-            Candidate(ids[i], d.label, beverage, d.box, ev.score, crop, ev.confirmed, ev.conflict, luma < Candidate.LOW_LIGHT_LUMA)
+            // A strong detection on a dark, featureless box is kept but never "sure".
+            val dark = luma < Candidate.LOW_LIGHT_LUMA || look?.darkFlat == true
+            Candidate(ids[i], d.label, beverage, d.box, ev.score, crop, ev.confirmed, ev.conflict, dark, look, timestampMs)
         }
         if (timestampMs - lastRawLog >= 1000) {
             lastRawLog = timestampMs
@@ -118,18 +126,26 @@ class LocalDetectorGrounder(
         return if (n == 0) 0f else sum / n
     }
 
-    private fun safeCrop(frame: Bitmap, box: Box): Bitmap? = try {
-        val l = (box.left * frame.width).toInt().coerceIn(0, frame.width - 2)
-        val t = (box.top * frame.height).toInt().coerceIn(0, frame.height - 2)
-        val w = ((box.right - box.left) * frame.width).toInt().coerceIn(2, frame.width - l)
-        val h = ((box.bottom - box.top) * frame.height).toInt().coerceIn(2, frame.height - t)
-        Bitmap.createScaledBitmap(Bitmap.createBitmap(frame, l, t, w, h), 96, 128, true)
-    } catch (e: Exception) { null }
-
     override fun close() = detector.close()
 
     private companion object { const val LOG_FLOOR = 0.2f }
 }
+
+/** Colours of the crop's central 60% (the edges are mostly background). Shared with the replay (DebugFrames). */
+fun lookOf(crop: Bitmap): Appearance? {
+    val x0 = crop.width / 5; val y0 = crop.height / 5; val w = crop.width - 2 * x0; val h = crop.height - 2 * y0
+    val px = IntArray(w * h)
+    crop.getPixels(px, 0, w, x0, y0, w, h)
+    return Appearance.of(px)
+}
+
+fun safeCrop(frame: Bitmap, box: Box): Bitmap? = try {
+    val l = (box.left * frame.width).toInt().coerceIn(0, frame.width - 2)
+    val t = (box.top * frame.height).toInt().coerceIn(0, frame.height - 2)
+    val w = ((box.right - box.left) * frame.width).toInt().coerceIn(2, frame.width - l)
+    val h = ((box.bottom - box.top) * frame.height).toInt().coerceIn(2, frame.height - t)
+    Bitmap.createScaledBitmap(Bitmap.createBitmap(frame, l, t, w, h), 96, 128, true)
+} catch (e: Exception) { null }
 
 /**
  * HSV dominant-color heuristic for the curated demo set.

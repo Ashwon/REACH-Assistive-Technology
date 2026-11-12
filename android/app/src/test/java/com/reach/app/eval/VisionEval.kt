@@ -11,6 +11,7 @@ import com.reach.app.grounding.SupportedClasses
 import com.reach.app.grounding.TargetLock
 import com.reach.app.grounding.rejectReason
 import com.reach.app.hand.HandSelector
+import com.reach.app.hand.Side
 import com.reach.app.spatial.Guidance
 import com.reach.app.spatial.phrase
 
@@ -28,6 +29,8 @@ data class Counts(var tp: Int = 0, var fp: Int = 0, var fn: Int = 0, var negImag
  *  - "sure":   what the app names without hedging (also no class conflict, not low light, score >= STRONG)
  * plus AP@0.5, confusion, frame-to-frame stability, target locking, hand identity, reached/speech, latency.
  * Everything app-level runs the app's own code (CandidateTracker, TargetLock, HandSelector, ReachCore).
+ * Detections the phone measured pixels for (luma/contrast, replays since 2026-10-13) get the app's pixel checks: a weak
+ * box on a dark, featureless region is dropped and a dark box is never "sure". Older predictions files skip them.
  */
 class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>, private val preds: Predictions) {
     private val scored = frames.filter { it.file in preds.frames }
@@ -40,12 +43,16 @@ class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>
             val tracker = CandidateTracker()
             for (f in seq) {
                 val pf = p(f)
-                val kept = pf.dets.filter { rejectReason(it.score, it.box) == null }.map { Det(it.label, it.score, it.box) }
-                val ids = tracker.assign(kept, f.ms)
-                out[f.file] = kept.indices.filter { kept[it].label in SupportedClasses.DETECTED }.map { i ->
-                    val ev = tracker.evidence(ids[i])!!
-                    Candidate(ids[i], kept[i].label, "unknown", kept[i].box, ev.score, null, ev.confirmed, ev.conflict,
-                        pf.luma < Candidate.LOW_LIGHT_LUMA)
+                // As LocalDetectorGrounder: pixels only for classes the app could surface.
+                val kept = pf.dets.mapNotNull { d ->
+                    val look = d.look.takeIf { d.label in SupportedClasses.DETECTED }
+                    if (rejectReason(d.score, d.box, look = look) == null) Det(d.label, d.score, d.box) to look else null
+                }
+                val ids = tracker.assign(kept.map { it.first }, f.ms)
+                out[f.file] = kept.indices.filter { kept[it].first.label in SupportedClasses.DETECTED }.map { i ->
+                    val (d, look) = kept[i]; val ev = tracker.evidence(ids[i])!!
+                    Candidate(ids[i], d.label, "unknown", d.box, ev.score, null, ev.confirmed, ev.conflict,
+                        pf.luma < Candidate.LOW_LIGHT_LUMA || look?.darkFlat == true, look, f.ms)
                 }
             }
         }
@@ -57,10 +64,10 @@ class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>
         .filter { it.confirmed && (!sureOnly || it.sure) }.mapNotNull { c -> spec.categoryOf(c.label)?.let { Triple(it, c.score, c.box) } }
 
     fun counts(level: String): Map<String, Counts> {
-        val out = spec.names.associateWith { Counts() }
+        val out = spec.scored.associateWith { Counts() }
         for (f in scored) {
             val dets = when (level) { "model" -> modelLevel(f); "app" -> appLevel(f, false); else -> appLevel(f, true) }
-            for (c in spec.names) {
+            for (c in spec.scored) {
                 if (c !in f.labeled) continue // not exhaustively labelled here: neither credit nor blame
                 val gts = f.objects.filter { it.category == c }.map { it.box }
                 val ps = dets.filter { it.first == c }.sortedByDescending { it.second }.map { it.third }
@@ -75,7 +82,7 @@ class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>
     }
 
     /** AP at IoU 0.5 over all raw detections (score >= 0.10) of each category; NaN without ground truth. */
-    fun averagePrecision(): Map<String, Double> = spec.names.associateWith { c ->
+    fun averagePrecision(): Map<String, Double> = spec.scored.associateWith { c ->
         val hits = ArrayList<Pair<Float, Boolean>>(); var nGt = 0
         for (f in scored) {
             if (c !in f.labeled) continue
@@ -107,7 +114,7 @@ class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>
 
     /** Per annotated object track: how often it is seen, how often the model's label for it flips, app id switches. */
     fun stability(): List<Stability> = sequences.flatMap { (seqName, seq) ->
-        seq.flatMap { f -> f.objects.mapNotNull { it.track?.let { t -> t to it.category } } }.distinct().map { (track, cat) ->
+        seq.flatMap { f -> f.objects.mapNotNull { it.track?.let { t -> t to it.category } } }.distinct().filter { it.second in spec.scored }.map { (track, cat) ->
             var n = 0; var seen = 0; var flips = 0; var switches = 0; var lastLabel: String? = null; var lastId: Int? = null
             for (f in seq) {
                 val gt = f.objects.firstOrNull { it.track == track } ?: continue
@@ -127,7 +134,7 @@ class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>
 
     /** Locks each annotated object like a user request would, then counts frames the lock points at anything else. */
     fun targetLocking(): List<LockRun> = sequences.flatMap { (seqName, seq) ->
-        seq.flatMap { f -> f.objects.mapNotNull { it.track?.let { t -> t to it.category } } }.distinct().map { (track, cat) ->
+        seq.flatMap { f -> f.objects.mapNotNull { it.track?.let { t -> t to it.category } } }.distinct().filter { it.second in spec.scored }.map { (track, cat) ->
             val lock = TargetLock(); var lockedAt: Long? = null; var after = 0; var on = 0; var wrong = 0
             for (f in seq) {
                 val gt = f.objects.firstOrNull { it.track == track }
@@ -152,10 +159,11 @@ class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>
 
     /** Sequences with hand boxes: the user makes the gesture; a frame guided by an "other hand" box is an error. */
     fun handIdentity(): List<HandRun> = sequences.filter { (_, seq) -> seq.any { it.hands.isNotEmpty() } }.map { (seqName, seq) ->
-        val sel = HandSelector(); sel.beginSelection(seq.first().ms)
+        val sel = HandSelector(); sel.beginEnrollment(Side.RIGHT, seq.first().ms) // the sequences record one hand
         var at: Long? = null; var user = 0; var other = 0; var paused = 0
         for (f in seq) {
-            val h = sel.update(p(f).hands, f.ms)
+            sel.update(p(f).hands, f.ms)
+            val h = sel.hand(Side.RIGHT)
             val userBox = f.hands.firstOrNull { it.category == "user hand" }
             if (h.present) {
                 if (at == null) at = f.ms
@@ -175,7 +183,7 @@ class VisionEval(private val spec: CategorySpec, private val frames: List<Frame>
             val said = ArrayList<String>(); val core = ReachCore({ said += it })
             val target = seq.first().target!!; val reachAt = seq.first().reachMs!!
             val directions = listOf(Guidance.LEFT, Guidance.RIGHT, Guidance.UP, Guidance.DOWN, Guidance.CLOSER).map { it.phrase(target)!! }
-            core.beginHandSetup(seq.first().ms)
+            core.beginHandSetup(seq.first().ms, side = Side.RIGHT)
             var reachedAt = -1
             for (f in seq) {
                 val cands = appCandidates.getValue(f.file)
