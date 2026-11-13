@@ -67,15 +67,15 @@ class OverlayView @JvmOverloads constructor(context: Context, attrs: AttributeSe
 
     private val candidatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.5f * dp
-        color = 0xB854B6FF.toInt()
+        strokeWidth = 2.2f * dp
+        color = 0xE654B6FF.toInt()
     }
 
     private val candidateFadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.1f * dp
-        color = 0x5599A8BE
-        pathEffect = DashPathEffect(floatArrayOf(5f * dp, 5f * dp), 0f)
+        strokeWidth = 1.8f * dp
+        color = 0xBD54B6FF.toInt()
+        pathEffect = DashPathEffect(floatArrayOf(6f * dp, 5f * dp), 0f)
     }
 
     private val targetFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -193,9 +193,9 @@ class OverlayView @JvmOverloads constructor(context: Context, attrs: AttributeSe
 
             val name = c.beverage.takeIf { it != "unknown" && it.isNotBlank() } ?: c.label
             val conf = (c.score * 100f).toInt().coerceIn(0, 99)
-            val badgeText = if (c.confirmed) "$name · $conf%" else "$name?"
-            val badgeFill = if (c.confirmed) 0xCC0D131F.toInt() else 0x990D131F.toInt()
-            val badgeBorder = if (c.confirmed) 0x6654B6FF else 0x33FFFFFF
+            val badgeText = if (c.confirmed) "$name · $conf%" else "$name · $conf%?"
+            val badgeFill = if (c.confirmed) 0xDC0D131F.toInt() else 0xC40D131F.toInt()
+            val badgeBorder = if (c.confirmed) 0xAA54B6FF.toInt() else 0x7754B6FF
             drawPill(canvas, badgeText, rect.left + rect.width() / 2f, rect.top - 14f * dp, badgeFill, badgeBorder, vw)
         }
 

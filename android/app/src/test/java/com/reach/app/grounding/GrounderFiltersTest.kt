@@ -159,4 +159,35 @@ class GrounderFiltersTest {
         )
         assertTrue("Vase stronger than weak bottle must suppress bottle", keptVase.isEmpty())
     }
+
+    @Test
+    fun `bottle survives weaker overlapping vase and nearby cell phone`() {
+        val bottleBox = Box(0.40f, 0.22f, 0.54f, 0.74f)
+        val (kept, _) = GrounderFilters.filterAndMap(
+            rawTargets = listOf(RawDetection("bottle", bottleBox, 0.34f)),
+            rawRivals = listOf(
+                RawDetection("vase", bottleBox, 0.30f),
+                RawDetection("cell phone", Box(0.42f, 0.45f, 0.56f, 0.70f), 0.36f)
+            ),
+            allowed = setOf("bottle", "laptop"),
+            frameWidth = 640,
+            frameHeight = 480
+        )
+        assertEquals(1, kept.size)
+        assertEquals("bottle", kept[0].label)
+    }
+
+    @Test
+    fun `moderately confident tall cup flask maps to bottle`() {
+        val tallFlask = Box(0.35f, 0.20f, 0.48f, 0.65f)
+        val (kept, _) = GrounderFilters.filterAndMap(
+            rawTargets = listOf(RawDetection("cup", tallFlask, 0.38f)),
+            rawRivals = emptyList(),
+            allowed = setOf("bottle", "laptop"),
+            frameWidth = 640,
+            frameHeight = 480
+        )
+        assertEquals(1, kept.size)
+        assertEquals("bottle", kept[0].label)
+    }
 }

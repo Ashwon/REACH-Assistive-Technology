@@ -50,7 +50,7 @@ import kotlin.math.atan
  */
 private const val GROUND_INTERVAL_MS = 45L
 /** A detection whose frame is older than this when it finishes is dropped, never applied. */
-private const val STALE_MS = 1500L
+private const val STALE_MS = 2200L
 /** How long a spoken/typed search scans incoming detector frames while the user looks around before giving up. */
 private const val SEARCH_WAIT_MS = 60_000L
 
@@ -336,9 +336,9 @@ class ReachController(
                         snapshot = cur
                         break
                     }
-                    // Also check latestCandidates after 600ms so a single clear sighting while panning locks immediately
-                    if (nowLoop - startWait >= 600L) {
-                        val rawMatch = latestCandidates.filter { wantedSpec.matches(it) && it.conflict == null && !it.lowLight }
+                    // Also check latestCandidates after 250ms so a clear single sighting while panning locks quickly
+                    if (nowLoop - startWait >= 250L) {
+                        val rawMatch = latestCandidates.filter { wantedSpec.matches(it) && it.conflict == null && (!it.lowLight || it.score >= 0.35f) }
                         if (rawMatch.size == 1) {
                             snapshot = cur + rawMatch.map { it.copy(confirmed = true) }
                             break

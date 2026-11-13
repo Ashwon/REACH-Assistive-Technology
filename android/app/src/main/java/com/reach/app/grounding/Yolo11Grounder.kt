@@ -188,31 +188,55 @@ class Yolo11Grounder(
                     val sCup = if (CLASS_CUP < clsCount) attr(4 + CLASS_CUP, a) else 0f
                     val sLaptop = if (CLASS_LAPTOP < clsCount) attr(4 + CLASS_LAPTOP, a) else 0f
 
-                    if (sBottle < 0.16f && sCup < GrounderFilters.CUP_AS_BOTTLE_MIN_SCORE && sLaptop < 0.18f) continue
+                    if (sBottle < 0.14f && sCup < GrounderFilters.CUP_AS_BOTTLE_MIN_SCORE && sLaptop < 0.18f) continue
 
                     val box = decodeBox(a) ?: continue
                     if (sLaptop >= 0.16f) near.add("laptop:${"%.2f".format(sLaptop)}")
-                    if (sBottle >= 0.14f) near.add("bottle:${"%.2f".format(sBottle)}")
+                    if (sBottle >= 0.12f || sCup >= 0.25f) near.add("bottle:${"%.2f".format(maxOf(sBottle, sCup))}")
 
-                    // Read full 80-class vector ONLY for the handful of active target anchors.
+                    // Read full 80-class vector ONLY for active target anchors.
                     for (c in 0 until clsCount) {
                         anchorScores[c] = attr(4 + c, a)
                     }
-                    if (sBottle >= 0.18f && !GrounderFilters.isAnchorSuppressed(CLASS_BOTTLE, sBottle, anchorScores)) {
-                        rawTargets.add(RawDetection("bottle", box, sBottle))
-                    } else if (sCup >= GrounderFilters.CUP_AS_BOTTLE_MIN_SCORE &&
-                        sCup > sBottle &&
+
+                    val tallPx = (box.bottom - box.top) * fh >= (box.right - box.left) * fw * 1.20f
+                    val bottleScore = if (tallPx && sBottle >= 0.14f && sCup >= 0.16f) {
+                        (maxOf(sBottle, sCup) + 0.35f * minOf(sBottle, sCup)).coerceAtMost(0.88f)
+                    } else {
+                        sBottle
+                    }
+
+                    val bottleKept = bottleScore >= 0.15f &&
+                        !GrounderFilters.isAnchorSuppressed(CLASS_BOTTLE, bottleScore, anchorScores)
+                    if (bottleKept) {
+                        rawTargets.add(RawDetection("bottle", box, bottleScore))
+                    }
+                    // Also evaluate tall "cup" independently so weak bottle logits never starve a strong tumbler/bottle cup logit.
+                    if (sCup >= GrounderFilters.CUP_AS_BOTTLE_MIN_SCORE &&
+                        (!bottleKept || sCup > bottleScore) &&
                         !GrounderFilters.isAnchorSuppressed(CLASS_CUP, sCup, anchorScores)
                     ) {
                         rawTargets.add(RawDetection("cup", box, sCup))
                     }
-                    if (sLaptop >= 0.22f && !GrounderFilters.isAnchorSuppressed(CLASS_LAPTOP, sLaptop, anchorScores)) {
+                    if (sLaptop >= 0.20f && !GrounderFilters.isAnchorSuppressed(CLASS_LAPTOP, sLaptop, anchorScores)) {
                         rawTargets.add(RawDetection("laptop", box, sLaptop))
                     }
                 }
 
-                // Pass 2: ONLY if any target candidate exists in this frame, collect overlapping rival boxes.
+                // Pass 2: ONLY if any target candidate exists, collect overlapping rival boxes near target union bounds.
                 if (rawTargets.isNotEmpty()) {
+                    var minL = 1f; var minT = 1f; var maxR = 0f; var maxB = 0f
+                    for (t in rawTargets) {
+                        if (t.box.left < minL) minL = t.box.left
+                        if (t.box.top < minT) minT = t.box.top
+                        if (t.box.right > maxR) maxR = t.box.right
+                        if (t.box.bottom > maxB) maxB = t.box.bottom
+                    }
+                    val uL = (minL * scaledW + padX) - 8f
+                    val uT = (minT * scaledH + padY) - 8f
+                    val uR = (maxR * scaledW + padX) + 8f
+                    val uB = (maxB * scaledH + padY) + 8f
+
                     for (rId in RIVAL_CLASS_IDS) {
                         if (rId >= clsCount) continue
                         val rRow = 4 + rId
@@ -220,8 +244,21 @@ class Yolo11Grounder(
                         for (a in 0 until numAnchors) {
                             val rs = attr(rRow, a)
                             if (rs < GrounderFilters.RIVAL_MIN_SCORE) continue
-                            val box = decodeBox(a) ?: continue
-                            rawRivals.add(RawDetection(rLabel, box, rs))
+                            val cxPx = attr(0, a)
+                            val cyPx = attr(1, a)
+                            val bwPx = attr(2, a)
+                            val bhPx = attr(3, a)
+                            if (bwPx <= 1f || bhPx <= 1f) continue
+                            if (cxPx + bwPx * 0.5f < uL || cxPx - bwPx * 0.5f > uR ||
+                                cyPx + bhPx * 0.5f < uT || cyPx - bhPx * 0.5f > uB
+                            ) continue
+                            val box = Box.clamped(
+                                (cxPx - bwPx * 0.5f - padX) / scaledW,
+                                (cyPx - bhPx * 0.5f - padY) / scaledH,
+                                (cxPx + bwPx * 0.5f - padX) / scaledW,
+                                (cyPx + bhPx * 0.5f - padY) / scaledH
+                            )
+                            if (box.isValid()) rawRivals.add(RawDetection(rLabel, box, rs))
                         }
                     }
                 }
@@ -245,12 +282,14 @@ class Yolo11Grounder(
         for (d in filteredDets) {
             val pix = safeCrop(frame, d.box).let { it to it?.let(::lookOf) }
             val look = pix.second
-            val flatBrightSurface = look != null && look.luma > 235f && look.contrast < 8f && d.score < 0.65f
+            val area = (d.box.right - d.box.left) * (d.box.bottom - d.box.top)
+            // White/clear bottles can read bright with low internal contrast; only reject huge blank walls/tables.
+            val flatBrightSurface = look != null && area > 0.25f && look.luma > 240f && look.contrast < 6f && d.score < 0.55f
             if (flatBrightSurface) {
                 finalRejected.add("${d.label}:${"%.2f".format(d.score)}:flatbright")
                 continue
             }
-            val why = if (frameDark) rejectReason(d.score, d.box, KEEP_SCORE_FLOOR, look) else null
+            val why = if (frameDark && d.score < 0.28f) rejectReason(d.score, d.box, KEEP_SCORE_FLOOR, look) else null
             if (why == null) {
                 verifiedDets.add(d)
                 crops[d] = pix
@@ -268,7 +307,6 @@ class Yolo11Grounder(
                 crop?.let { ColorClassifier.classify(it) } ?: "unknown"
             } else "unknown"
             val dark = frameDark || (luma < 55f && look?.darkFlat == true)
-            // Require 2-frame track confirmation normally; only ultra-high confidence confirmed immediately.
             val isConfirmed = ev.confirmed || (!dark && d.score >= INSTANT_CONFIRM_SCORE)
             val calibratedScore = if (!dark && ev.confirmed && ev.score >= 0.48f && ev.conflict == null) {
                 maxOf(ev.score, Candidate.STRONG_SCORE)
@@ -307,9 +345,9 @@ class Yolo11Grounder(
         val w = frame.width; val h = frame.height
         val row = IntArray(w)
         var sum = 0L; var n = 0
-        for (y in 0 until h step 8) {
+        for (y in 0 until h step 16) {
             frame.getPixels(row, 0, w, 0, y, w, 1)
-            for (x in 0 until w step 8) {
+            for (x in 0 until w step 16) {
                 val p = row[x]
                 val r = (p shr 16) and 0xFF
                 val g = (p shr 8) and 0xFF
@@ -350,8 +388,8 @@ class Yolo11Grounder(
     companion object {
         const val MODEL_ASSET = "yolo11n.onnx"
         private const val INPUT_SIZE = 640
-        private const val KEEP_SCORE_FLOOR = 0.22f
-        private const val INSTANT_CONFIRM_SCORE = 0.72f
+        private const val KEEP_SCORE_FLOOR = 0.15f
+        private const val INSTANT_CONFIRM_SCORE = 0.46f
         private val LETTERBOX_BG = Color.rgb(114, 114, 114)
 
         private val RIVAL_CLASS_IDS = intArrayOf(

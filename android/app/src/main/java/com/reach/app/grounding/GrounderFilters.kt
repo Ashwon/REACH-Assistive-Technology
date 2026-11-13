@@ -15,11 +15,11 @@ data class RawDetection(val label: String, val box: Box, val score: Float)
  * ambiguous laptop detections at both anchor level and post-NMS box level.
  */
 object GrounderFilters {
-    const val BOTTLE_MIN_SCORE = 0.28f
-    const val BOTTLE_KEEP_SCORE = 0.22f
-    const val LAPTOP_MIN_SCORE = 0.32f
-    const val LAPTOP_KEEP_SCORE = 0.24f
-    const val CUP_AS_BOTTLE_MIN_SCORE = 0.52f
+    const val BOTTLE_MIN_SCORE = 0.20f
+    const val BOTTLE_KEEP_SCORE = 0.15f
+    const val LAPTOP_MIN_SCORE = 0.28f
+    const val LAPTOP_KEEP_SCORE = 0.20f
+    const val CUP_AS_BOTTLE_MIN_SCORE = 0.32f
     const val CUP_MIN_ASPECT = 1.45f
     const val RIVAL_MIN_SCORE = 0.22f
     const val NMS_IOU = 0.45f
@@ -102,14 +102,14 @@ object GrounderFilters {
                 maxAnyOther >= score && score < 0.62f
             }
             CLASS_BOTTLE -> {
-                val rival = maxOf(
+                val containerRival = maxOf(
                     classScores[CLASS_VASE],
                     classScores[CLASS_WINE_GLASS],
-                    classScores[CLASS_BOWL],
-                    classScores[65], // remote
-                    classScores[67]  // cell phone
+                    classScores[CLASS_BOWL]
                 )
-                rival >= score * 0.95f && score < 0.64f
+                val techRival = maxOf(classScores[65], classScores[67]) // remote, cell phone
+                (containerRival >= score * 1.12f && score < 0.56f) ||
+                    (techRival >= score * 1.30f && score < 0.50f)
             }
             CLASS_CUP -> {
                 if (score < CUP_AS_BOTTLE_MIN_SCORE) return true
@@ -118,7 +118,7 @@ object GrounderFilters {
                     classScores[CLASS_WINE_GLASS],
                     classScores[CLASS_BOWL]
                 )
-                rival >= score * 0.78f
+                rival >= score * 1.05f
             }
             else -> false
         }
@@ -220,7 +220,13 @@ object GrounderFilters {
                     if (rival.label in BOTTLE_RIVALS) {
                         val sameRegion = iou >= 0.28f ||
                             (inter / minOf(candArea, rArea) >= 0.60f && rArea >= candArea * 0.45f)
-                        if (sameRegion && rival.score >= candScore * 0.88f && candScore < 0.68f) {
+                        val isPhoneOrRemote = rival.label == "remote" || rival.label == "cell phone"
+                        val suppressed = if (isPhoneOrRemote) {
+                            iou >= 0.42f && rival.score >= candScore * 1.35f && candScore < 0.55f
+                        } else {
+                            sameRegion && rival.score >= candScore * 1.12f && candScore < 0.58f
+                        }
+                        if (suppressed) {
                             return rival.label
                         }
                     }
