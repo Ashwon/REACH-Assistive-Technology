@@ -133,6 +133,20 @@ class BandSetupActivity : AppCompatActivity() {
         val ready = band.ready
         b.stepLabel.text = getString(R.string.band_step, step.ordinal + 1, SetupStep.values().size)
         b.progress.setProgressCompat((step.ordinal + 1) * 100 / SetupStep.values().size, true)
+        val (heroRes, heroTint) = when (step) {
+            SetupStep.WELCOME -> R.drawable.ic_spark to R.color.reach_primary
+            SetupStep.EXPLAIN, SetupStep.CONNECT -> R.drawable.ic_bluetooth to R.color.reach_primary
+            SetupStep.LEFT, SetupStep.RIGHT -> R.drawable.ic_center_target to R.color.reach_warn
+            SetupStep.LEARN -> R.drawable.ic_spark to R.color.reach_good
+            SetupStep.CONFIRM -> R.drawable.ic_check to R.color.reach_good
+        }
+        b.bandHeroIcon.setImageResource(heroRes)
+        b.bandHeroIcon.imageTintList = android.content.res.ColorStateList.valueOf(
+            androidx.core.content.ContextCompat.getColor(this, heroTint)
+        )
+        b.bandStatusDot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            androidx.core.content.ContextCompat.getColor(this, if (ready) R.color.reach_good else R.color.reach_warn)
+        )
         b.title.text = title(step)
         b.body.text = body(step, ready)
         b.bandStatus.text = getString(R.string.band_status, band.state.words)
@@ -153,7 +167,10 @@ class BandSetupActivity : AppCompatActivity() {
         }
         fun connect() = connectButton()?.let { (text, action) -> button(text, action != null) { action?.invoke() } }
         when (step) {
-            SetupStep.WELCOME -> button(getString(R.string.band_welcome_next)) { go { setup.next(ready) } }
+            SetupStep.WELCOME -> {
+                button(getString(R.string.band_welcome_next)) { go { setup.next(ready) } }
+                button(getString(R.string.band_skip)) { skip() }
+            }
             SetupStep.EXPLAIN -> {
                 button(getString(R.string.band_setup_start)) { go { setup.next(ready) } }
                 button(getString(R.string.band_skip)) { skip() }

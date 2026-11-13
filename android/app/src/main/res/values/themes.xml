@@ -13,12 +13,31 @@
         <item name="colorSurfaceContainerLow">@color/reach_surface</item>
         <item name="colorSurfaceContainer">@color/reach_surface</item>
         <item name="colorSurfaceContainerHigh">@color/reach_surface_high</item>
-        <item name="colorOutline">@color/reach_outline</item>
+        <item name="colorOutline">@color/reach_outline_card</item>
         <item name="android:colorBackground">@color/reach_bg</item>
         <item name="android:windowBackground">@color/reach_bg</item>
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.Reach.BottomSheet</item>
         <!-- Edge-to-edge: the camera shows behind the system bars; overlays are inset in MainActivity. -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="ThemeOverlay.Reach.BottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.Reach.BottomSheet</item>
+        <item name="android:navigationBarColor">@color/reach_surface</item>
+    </style>
+
+    <style name="Widget.Reach.BottomSheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">@color/reach_surface</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.Reach.BottomSheet</item>
+    </style>
+
+    <style name="ShapeAppearance.Reach.BottomSheet" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">28dp</item>
+        <item name="cornerSizeTopRight">28dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
     <style name="TextAppearance.Reach.Brand" parent="TextAppearance.Material3.HeadlineSmall">
@@ -29,20 +48,23 @@
 
     <style name="TextAppearance.Reach.Label" parent="TextAppearance.Material3.LabelMedium">
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:letterSpacing">0.12</item>
+        <item name="android:letterSpacing">0.10</item>
         <item name="android:textAllCaps">true</item>
+        <item name="android:textSize">11sp</item>
         <item name="android:textColor">@color/reach_text_secondary</item>
     </style>
 
-    <style name="TextAppearance.Reach.Guidance" parent="TextAppearance.Material3.HeadlineMedium">
+    <style name="TextAppearance.Reach.Guidance" parent="TextAppearance.Material3.HeadlineSmall">
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:textSize">28sp</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:lineSpacingMultiplier">1.1</item>
         <item name="android:textColor">@color/reach_text</item>
     </style>
 
     <style name="TextAppearance.Reach.Pill" parent="TextAppearance.Material3.LabelLarge">
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">13sp</item>
         <item name="android:textColor">@color/reach_text</item>
     </style>
 
@@ -54,6 +76,54 @@
         <item name="android:paddingBottom">6dp</item>
         <item name="android:textAppearance">@style/TextAppearance.Reach.Pill</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:drawablePadding">8dp</item>
+        <item name="android:drawablePadding">6dp</item>
+    </style>
+
+    <style name="Widget.Reach.HudIconButton" parent="Widget.Material3.Button.IconButton.Filled.Tonal">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:insetTop">2dp</item>
+        <item name="android:insetBottom">2dp</item>
+        <item name="android:insetLeft">2dp</item>
+        <item name="android:insetRight">2dp</item>
+        <item name="backgroundTint">@color/reach_surface_glass_light</item>
+        <item name="iconTint">@color/reach_text</item>
+        <item name="strokeColor">@color/reach_outline</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="iconSize">20dp</item>
+    </style>
+
+    <style name="Widget.Reach.QuickTile" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:layout_height">46dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingHorizontal">10dp</item>
+        <item name="android:textSize">13.5sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/reach_text</item>
+        <item name="backgroundTint">@color/reach_surface_glass</item>
+        <item name="iconTint">@color/reach_primary</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconPadding">6dp</item>
+        <item name="iconSize">18dp</item>
+        <item name="strokeColor">@color/reach_outline</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="cornerRadius">16dp</item>
+    </style>
+
+    <style name="Widget.Reach.SettingsAction" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="android:gravity">start|center_vertical</item>
+        <item name="android:paddingHorizontal">16dp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/reach_text</item>
+        <item name="backgroundTint">@color/reach_surface_high</item>
+        <item name="iconTint">@color/reach_primary</item>
+        <item name="iconGravity">start</item>
+        <item name="iconPadding">12dp</item>
+        <item name="iconSize">20dp</item>
+        <item name="cornerRadius">16dp</item>
     </style>
 </resources>

@@ -5,6 +5,7 @@ import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -45,6 +46,7 @@ import com.reach.app.haptic.IntroState
 import com.reach.app.haptic.SetupStep
 import com.reach.app.hand.HandTracker
 import com.reach.app.spatial.DepthFrame
+import com.reach.app.spatial.Guidance
 import com.reach.app.spatial.HeadingSensor
 import com.reach.app.talk.Tutorial
 import com.reach.app.speech.Speaker
@@ -72,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var speaker: Speaker
     private lateinit var voice: VoiceInput
     private lateinit var heading: HeadingSensor
+    private var lastCueKey: String = ""
     private val band by lazy { BleBand.get(this) }
     private val prefs by lazy { getSharedPreferences("reach", MODE_PRIVATE) }
     private val bandPrefs by lazy { BandSetupActivity.prefs(this) }
@@ -127,12 +130,14 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         // Edge to edge: the camera runs behind the system bars; only the overlays are inset from them.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        val gap = (8 * resources.displayMetrics.density).toInt()
+        val density = resources.displayMetrics.density
+        val vGap = (10 * density).toInt()
+        val hPad = (14 * density).toInt()
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            binding.topBar.updatePadding(top = bars.top + gap, left = bars.left + gap, right = bars.right + gap)
-            binding.bottomBar.updatePadding(bottom = maxOf(bars.bottom, ime.bottom) + gap, left = bars.left + gap, right = bars.right + gap)
+            binding.topBar.updatePadding(top = bars.top + vGap, left = bars.left + hPad, right = bars.right + hPad)
+            binding.bottomBar.updatePadding(bottom = maxOf(bars.bottom, ime.bottom) + vGap, left = bars.left + hPad, right = bars.right + hPad)
             insets
         }
         // Chest-mounted and used by voice: a screen timeout would stop the camera.
@@ -391,8 +396,21 @@ class MainActivity : AppCompatActivity() {
         }
         val targetState = forceState ?: !camera.torchOn
         if (camera.setTorch(targetState)) {
-            binding.btnTorch.text = if (camera.torchOn) "Light On" else "Light"
-            speaker.say(if (camera.torchOn) "Flashlight on." else "Flashlight off.")
+            val on = camera.torchOn
+            binding.btnTorch.text = getString(if (on) R.string.quick_torch_on else R.string.quick_torch)
+            binding.btnTorch.backgroundTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(this, if (on) R.color.reach_warn_container else R.color.reach_surface_glass)
+            )
+            binding.btnTorch.strokeColor = ColorStateList.valueOf(
+                ContextCompat.getColor(this, if (on) R.color.reach_warn else R.color.reach_outline)
+            )
+            binding.btnTorch.iconTint = ColorStateList.valueOf(
+                ContextCompat.getColor(this, if (on) R.color.reach_warn else R.color.reach_primary)
+            )
+            binding.btnTorch.setTextColor(
+                ContextCompat.getColor(this, if (on) R.color.reach_warn else R.color.reach_text)
+            )
+            speaker.say(if (on) "Flashlight on." else "Flashlight off.")
         } else {
             speaker.say("Flashlight isn't available on this camera lens.")
         }
@@ -458,9 +476,11 @@ class MainActivity : AppCompatActivity() {
         b.switchSpeech.isChecked = speaker.enabled
         b.switchSpeech.setOnCheckedChangeListener { _, on -> setSpeech(on, announce = true) }
         b.sliderVolume.value = speaker.volume.coerceIn(0.1f, 1f)
+        b.volumeValue.text = "${(b.sliderVolume.value * 100).toInt()}%"
         b.sliderVolume.setLabelFormatter { "${(it * 100).toInt()}%" }
         b.sliderVolume.addOnChangeListener { _, v, _ ->
             speaker.volume = v
+            b.volumeValue.text = "${(v * 100).toInt()}%"
             prefs.edit().putFloat(PREF_VOLUME, v).apply()
         }
         b.btnTestVoice.setOnClickListener { speaker.say(getString(R.string.spoken_test)) }
@@ -586,8 +606,27 @@ class MainActivity : AppCompatActivity() {
             binding.guidanceText.animate().alpha(1f).setDuration(180).start()
         }
         setIfChanged(binding.guidanceDetail, g.detail)
-        binding.guidanceMode.visibility = if (s?.mode == Mode.GUIDING) View.VISIBLE else View.GONE
+        val guiding = s?.mode == Mode.GUIDING
+        binding.guidanceMode.visibility = if (guiding) View.VISIBLE else View.GONE
         setIfChanged(binding.guidanceMode, getString(if (g.directionOnly) R.string.direction_only else R.string.direction_distance))
+        binding.voiceWakePill.visibility = if (guiding) View.GONE else View.VISIBLE
+        binding.alignBar.visibility = if (guiding) View.VISIBLE else View.GONE
+        if (guiding) {
+            val pct = binding.overlay.alignmentPercent
+            binding.alignBar.setProgressCompat(pct, true)
+            binding.alignBar.setIndicatorColor(
+                ContextCompat.getColor(this, if (pct >= 75) R.color.reach_good else R.color.reach_primary)
+            )
+        }
+        updateCueBadge(s?.mode, s?.cue)
+        val activeTarget = s?.target?.lowercase().orEmpty()
+        val targetActive = s != null && s.mode != Mode.IDLE && s.mode != Mode.REACHED
+        binding.btnQuickBottle.strokeColor = ColorStateList.valueOf(
+            ContextCompat.getColor(this, if (targetActive && activeTarget == "bottle") R.color.reach_primary else R.color.reach_outline)
+        )
+        binding.btnQuickLaptop.strokeColor = ColorStateList.valueOf(
+            ContextCompat.getColor(this, if (targetActive && activeTarget == "laptop") R.color.reach_primary else R.color.reach_outline)
+        )
         val spoken = lastSpoken
         val spokenLine = when {
             !speaker.enabled -> getString(R.string.speech_off_note)
@@ -620,27 +659,83 @@ class MainActivity : AppCompatActivity() {
     private fun renderActions(mode: Mode) {
         if (mode == renderedMode) return
         renderedMode = mode
-        TransitionManager.beginDelayedTransition(binding.actions)
+        TransitionManager.beginDelayedTransition(binding.bottomBar)
+        binding.inputLayout.visibility = if (mode == Mode.GUIDING || mode == Mode.SEARCHING) View.GONE else View.VISIBLE
         val p = binding.btnPrimary; val stop = binding.btnStop
+        fun stylePrimary(bgRes: Int, fgRes: Int) {
+            p.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, bgRes))
+            val fg = ContextCompat.getColor(this, fgRes)
+            p.setTextColor(fg)
+            p.iconTint = ColorStateList.valueOf(fg)
+        }
         when (mode) {
             Mode.IDLE, Mode.REACHED -> {
+                stylePrimary(R.color.reach_primary, R.color.reach_on_primary)
                 p.visibility = View.VISIBLE; p.isEnabled = true; p.text = getString(R.string.find_object)
                 p.icon = ContextCompat.getDrawable(this, R.drawable.ic_search); stop.visibility = View.GONE
             }
             Mode.SEARCHING -> {
+                stylePrimary(R.color.reach_primary, R.color.reach_on_primary)
                 p.visibility = View.VISIBLE; p.isEnabled = false; p.text = getString(R.string.searching); p.icon = null
                 stop.visibility = View.VISIBLE; stop.text = getString(R.string.cancel)
             }
             Mode.TARGET_LOCKED, Mode.TRACKING_LOST -> { // TRACKING_LOST: Start Guidance is the deliberate retry
+                stylePrimary(R.color.reach_primary, R.color.reach_on_primary)
                 p.visibility = View.VISIBLE; p.isEnabled = true; p.text = getString(R.string.start_guidance)
                 p.icon = ContextCompat.getDrawable(this, R.drawable.ic_navigation)
                 stop.visibility = View.VISIBLE; stop.text = getString(R.string.cancel)
             }
             Mode.GUIDING -> {
-                p.visibility = View.VISIBLE; p.isEnabled = true; p.text = getString(R.string.got_it); p.icon = null
+                stylePrimary(R.color.reach_good, R.color.reach_on_good)
+                p.visibility = View.VISIBLE; p.isEnabled = true; p.text = getString(R.string.got_it)
+                p.icon = ContextCompat.getDrawable(this, R.drawable.ic_check)
                 stop.visibility = View.VISIBLE; stop.text = getString(R.string.stop_guidance)
             }
         }
+        val cardBg = binding.guidanceCard.background.mutate() as? android.graphics.drawable.GradientDrawable
+        val cardStrokeColor = when (mode) {
+            Mode.GUIDING, Mode.REACHED -> R.color.reach_good
+            Mode.TRACKING_LOST -> R.color.reach_warn
+            else -> R.color.reach_outline
+        }
+        cardBg?.setStroke(resources.displayMetrics.density.toInt().coerceAtLeast(1), ContextCompat.getColor(this, cardStrokeColor))
+    }
+
+    private fun updateCueBadge(mode: Mode?, cue: Guidance?) {
+        val key = "${mode?.name}_${cue?.name}"
+        if (key == lastCueKey) return
+        lastCueKey = key
+        val (iconRes, rot, tintRes, badgeRes) = when (cue) {
+            Guidance.RIGHT -> arrayOf(R.drawable.ic_arrow_forward, 0f, R.color.reach_primary, R.color.reach_primary_container)
+            Guidance.LEFT -> arrayOf(R.drawable.ic_arrow_forward, 180f, R.color.reach_primary, R.color.reach_primary_container)
+            Guidance.UP -> arrayOf(R.drawable.ic_arrow_forward, -90f, R.color.reach_primary, R.color.reach_primary_container)
+            Guidance.DOWN -> arrayOf(R.drawable.ic_arrow_forward, 90f, R.color.reach_primary, R.color.reach_primary_container)
+            Guidance.CLOSER, Guidance.BACK -> arrayOf(R.drawable.ic_center_target, 0f, R.color.reach_primary, R.color.reach_primary_container)
+            Guidance.NEAR, Guidance.LINED_UP_2D, Guidance.AT_TARGET, Guidance.HAND_COVERS_TARGET ->
+                arrayOf(R.drawable.ic_center_target, 0f, R.color.reach_good, R.color.reach_good_container)
+            Guidance.REACHED -> arrayOf(R.drawable.ic_check, 0f, R.color.reach_good, R.color.reach_good_container)
+            Guidance.STOP, Guidance.TURNED_AWAY, Guidance.TARGET_LOST, Guidance.HAND_LOST,
+            Guidance.HAND_UNCERTAIN, Guidance.IDENTITY_CHECK ->
+                arrayOf(R.drawable.ic_help, 0f, R.color.reach_warn, R.color.reach_warn_container)
+            Guidance.HAND_SHOW, Guidance.HAND_FIST, Guidance.HAND_TOO_FAR,
+            Guidance.HAND_AMBIGUOUS, Guidance.HAND_SAME ->
+                arrayOf(R.drawable.ic_hand, 0f, R.color.reach_warn, R.color.reach_warn_container)
+            else -> when (mode) {
+                Mode.SEARCHING -> arrayOf(R.drawable.ic_search, 0f, R.color.reach_primary, R.color.reach_primary_container)
+                Mode.TARGET_LOCKED -> arrayOf(R.drawable.ic_center_target, 0f, R.color.reach_good, R.color.reach_good_container)
+                Mode.REACHED -> arrayOf(R.drawable.ic_check, 0f, R.color.reach_good, R.color.reach_good_container)
+                Mode.TRACKING_LOST -> arrayOf(R.drawable.ic_help, 0f, R.color.reach_warn, R.color.reach_warn_container)
+                else -> arrayOf(R.drawable.ic_spark, 0f, R.color.reach_primary, R.color.reach_primary_container)
+            }
+        }
+        val tintColor = ContextCompat.getColor(this, tintRes as Int)
+        val badgeColor = ContextCompat.getColor(this, badgeRes as Int)
+        binding.cueIcon.setImageResource(iconRes as Int)
+        binding.cueIcon.imageTintList = ColorStateList.valueOf(tintColor)
+        binding.cueIcon.animate().rotation(rot as Float).setDuration(140).start()
+        val bg = binding.cueBadge.background.mutate() as? android.graphics.drawable.GradientDrawable
+        bg?.setColor(badgeColor)
+        bg?.setStroke((1.5f * resources.displayMetrics.density).toInt(), tintColor)
     }
 
     private fun renderSpeechButton() {

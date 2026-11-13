@@ -39,13 +39,15 @@ class DepthCheckActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        txt = TextView(this).apply { textSize = 20f; setPadding(40, 120, 40, 40) }
+        setContentView(R.layout.activity_depth_check)
+        txt = findViewById(R.id.depthStatusText)
+        findViewById<android.view.View>(R.id.btnDepthBack).setOnClickListener { finish() }
         glView = GLSurfaceView(this).apply {
             setEGLContextClientVersion(2)
             setRenderer(this@DepthCheckActivity)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
-        setContentView(FrameLayout(this).apply { addView(glView, FrameLayout.LayoutParams(1, 1)); addView(txt) })
+        findViewById<FrameLayout>(R.id.glHost).addView(glView, FrameLayout.LayoutParams(1, 1))
     }
 
     override fun onResume() {

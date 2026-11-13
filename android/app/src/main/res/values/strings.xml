@@ -99,4 +99,19 @@
     <string name="spoken_not_heard">I didn’t hear that.</string>
     <string name="spoken_no_camera">The camera is off, so I can’t look for objects yet.</string>
     <string name="spoken_models_failed">Recognition couldn’t start on this phone.</string>
+
+    <string name="voice_wake_badge">Voice · Say Reach</string>
+    <string name="quick_bottle">Bottle</string>
+    <string name="quick_laptop">Laptop</string>
+    <string name="quick_torch">Light</string>
+    <string name="quick_torch_on">Light On</string>
+    <string name="settings_sheet_title">Controls &amp; Diagnostics</string>
+    <string name="settings_subtitle">Configure voice, hand tracking, wristband, and sensors</string>
+    <string name="settings_camera_sub">Choose which lens stays active while guiding</string>
+    <string name="settings_voice_sub">Adjust spoken feedback and guided practice</string>
+    <string name="settings_band_sub">Connect ESP32 haptic band and test cues</string>
+    <string name="settings_tools_sub">Calibrate depth sensors and inspect live engine stats</string>
+    <string name="depth_title">ARCore Depth Check</string>
+    <string name="depth_back">Back</string>
+    <string name="band_hero_desc">Setup step illustration</string>
 </resources>

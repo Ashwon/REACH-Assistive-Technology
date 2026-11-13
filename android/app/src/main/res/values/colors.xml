@@ -1,17 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dark, high-contrast palette. Secondary text on surface is ~8:1; primary text ~16:1. -->
-    <color name="reach_bg">#0B0E13</color>
-    <color name="reach_surface">#141922</color>
-    <color name="reach_surface_high">#1C232E</color>
-    <color name="reach_outline">#2A3340</color>
-    <color name="reach_text">#F3F6FA</color>
-    <color name="reach_text_secondary">#A7B2C0</color>
-    <color name="reach_primary">#8EC5FF</color>
-    <color name="reach_on_primary">#06213D</color>
-    <color name="reach_primary_container">#1E3A5C</color>
-    <color name="reach_on_primary_container">#D6E9FF</color>
-    <color name="reach_good">#5EE08A</color>
-    <color name="reach_warn">#FFC24B</color>
-    <color name="reach_scrim">#CC0B0E13</color>
+    <!-- Deep OLED spatial obsidian palette with high-contrast >= 7:1 text legibility -->
+    <color name="reach_bg">#06080D</color>
+    <color name="reach_surface">#101622</color>
+    <color name="reach_surface_high">#182132</color>
+    <color name="reach_surface_glass">#D60D131F</color>
+    <color name="reach_surface_glass_light">#B8141D2E</color>
+    <color name="reach_outline">#29FFFFFF</color>
+    <color name="reach_outline_card">#222D40</color>
+    <color name="reach_text">#F4F7FB</color>
+    <color name="reach_text_secondary">#99A8BE</color>
+    <color name="reach_text_muted">#6A7A92</color>
+
+    <!-- Brand & status accents -->
+    <color name="reach_primary">#54B6FF</color>
+    <color name="reach_on_primary">#031C33</color>
+    <color name="reach_primary_container">#133454</color>
+    <color name="reach_on_primary_container">#D6EEFF</color>
+
+    <color name="reach_good">#38DF87</color>
+    <color name="reach_on_good">#042614</color>
+    <color name="reach_good_container">#113624</color>
+
+    <color name="reach_warn">#FFB547</color>
+    <color name="reach_warn_container">#3B270F</color>
+
+    <color name="reach_danger">#FF6B6B</color>
+    <color name="reach_danger_container">#3D161A</color>
+
+    <color name="reach_scrim">#D9080C14</color>
 </resources>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/reach_bg"
+    android:fitsSystemWindows="true">
+
+    <!-- Hidden 1x1 GL host required by ARCore texture updates -->
+    <FrameLayout
+        android:id="@+id/glHost"
+        android:layout_width="1dp"
+        android:layout_height="1dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDepthBack"
+                style="@style/Widget.Reach.HudIconButton"
+                android:contentDescription="@string/depth_back"
+                app:icon="@drawable/ic_back" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="@string/depth_title"
+                android:textColor="@color/reach_text"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Status / Measurement Card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:background="@drawable/bg_setup_card"
+            android:orientation="vertical"
+            android:padding="22dp">
+
+            <FrameLayout
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_hero_badge">
+
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_center_target"
+                    app:tint="@color/reach_primary" />
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="LIVE SENSOR DIAGNOSTICS"
+                android:textAppearance="@style/TextAppearance.Reach.Label"
+                android:textColor="@color/reach_primary" />
+
+            <TextView
+                android:id="@+id/depthStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:fontFamily="monospace"
+                android:lineSpacingMultiplier="1.35"
+                android:textColor="@color/reach_text"
+                android:textSize="16sp"
+                tools:text="Main camera\nCenter: 420 mm" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

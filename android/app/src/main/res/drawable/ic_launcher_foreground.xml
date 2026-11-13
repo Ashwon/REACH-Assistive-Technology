@@ -1,9 +1,40 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <!-- A target ring with the fingertip arriving at its centre. -->
-    <path android:strokeColor="#8EC5FF" android:strokeWidth="5" android:fillColor="#00000000"
-        android:pathData="M54,32a22,22 0,1 1,0 44a22,22 0,1 1,0 -44z" />
-    <path android:fillColor="#F3F6FA" android:pathData="M54,47a7,7 0,1 1,0 14a7,7 0,1 1,0 -14z" />
-    <path android:strokeColor="#5EE08A" android:strokeWidth="5" android:strokeLineCap="round"
-        android:fillColor="#00000000" android:pathData="M30,78L44,64" />
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer radar ring -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,23 A31,31 0 1,1 53.99,23 Z"
+        android:strokeColor="#54B6FF"
+        android:strokeAlpha="0.35"
+        android:strokeWidth="2" />
+    <!-- Spatial bracket top-left / bottom-right -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M29,43 V33 C29,30.8 30.8,29 33,29 H43 M65,29 H75 C77.2,29 79,30.8 79,33 V43 M79,65 V75 C79,77.2 77.2,79 75,79 H65 M43,79 H33 C30.8,79 29,77.2 29,75 V65"
+        android:strokeColor="#54B6FF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4" />
+    <!-- Guidance vector curve -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M39,64 L54,48 L67,48"
+        android:strokeColor="#38DF87"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4.2" />
+    <!-- Target lock beacon -->
+    <path
+        android:fillColor="#38DF87"
+        android:pathData="M67,48 m-6.5,0 a6.5,6.5 0 1,0 13,0 a6.5,6.5 0 1,0 -13,0" />
+    <path
+        android:fillColor="#08131E"
+        android:pathData="M67,48 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0" />
+    <!-- Hand node -->
+    <path
+        android:fillColor="#E9F2FF"
+        android:pathData="M39,64 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
 </vector>
